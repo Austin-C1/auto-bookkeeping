@@ -1,0 +1,74 @@
+# BlackCat V1 production deployment configuration.
+# Uses the published Docker image and does not require a local build.
+#
+# Usage:
+# 1. Create a .env file with the required secrets.
+# 2. Run: docker-compose -f docker-compose.prod.yml up -d
+#
+# Notes:
+# - JWT_SECRET and ADMIN_RESET_PASSWORD_KEY must not use placeholder values.
+# - Use "openssl rand -hex" to generate secure random secrets.
+
+services:
+  app:
+    # Use the published Docker Hub image.
+    image: blackcat-v1:latest
+    container_name: blackcat-v1
+    ports:
+      - "${SERVER_PORT:-80}:8080"
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-prod}
+      - DB_URL=${DB_URL:-jdbc:mysql://mysql:3306/blackcat_v1?useSSL=false&serverTimezone=UTC&characterEncoding=utf8&allowPublicKeyRetrieval=true}
+      - DB_USERNAME=${DB_USERNAME:-root}
+      - DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
+      - SERVER_PORT=8000
+      # Required secrets. Set them in .env or pass them as environment variables.
+      #   openssl rand -hex 32  # ADMIN_RESET_PASSWORD_KEY
+      #   openssl rand -hex 64  # JWT_SECRET / ENCRYPTION_KEY
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      - ADMIN_RESET_PASSWORD_KEY=${ADMIN_RESET_PASSWORD_KEY:?ADMIN_RESET_PASSWORD_KEY is required}
+      # Optional log levels. Defaults: root=WARN, app=INFO.
+      # Allowed values: TRACE, DEBUG, INFO, WARN, ERROR, OFF
+      - LOG_LEVEL_ROOT=${LOG_LEVEL_ROOT:-WARN}
+      - LOG_LEVEL_APP=${LOG_LEVEL_APP:-INFO}
+      # Allow pre-release version checks.
+      - ALLOW_PRERELEASE=${ALLOW_PRERELEASE:-false}
+      - GITHUB_REPO=${GITHUB_REPO:-}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - blackcat-v1-network
+
+  mysql:
+    image: mysql:8.1
+    container_name: blackcat-v1-mysql
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD:?DB_PASSWORD is required}
+      - MYSQL_DATABASE=blackcat_v1
+      - MYSQL_CHARACTER_SET_SERVER=utf8mb4
+      - MYSQL_COLLATION_SERVER=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:?DB_PASSWORD is required}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - blackcat-v1-network
+
+volumes:
+  mysql-data:
+
+networks:
+  blackcat-v1-network:
+    driver: bridge
