@@ -20,6 +20,7 @@ import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.CompletableFuture
 
 @Component
 class BookkeepingTitan007ScoreCrawler(
@@ -27,7 +28,8 @@ class BookkeepingTitan007ScoreCrawler(
     private val configuredOutputDir: String = "data/titan007"
 ) {
     private val httpClient: HttpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(20))
+        .connectTimeout(Duration.ofSeconds(10))
+        .version(HttpClient.Version.HTTP_1_1)
         .build()
     private var pageFetcher: ((URI) -> ByteArray)? = null
 
@@ -37,34 +39,63 @@ class BookkeepingTitan007ScoreCrawler(
 
     fun fetchScoreResults(request: FetchBookkeepingTitan007ScoresRequest): BookkeepingTitan007ScoreFetchResultDto {
         val businessDate = LocalDate.parse(request.businessDate)
-        val sourceUrl = scoreUrl(businessDate)
-        val html = decodeHtml(fetchPage(sourceUrl))
-        val rows = parseScoreRows(
-            html = html,
-            businessDate = businessDate,
-            leagueFilter = request.leagueFilter,
-            startTime = request.startTime?.takeIf { it.isNotBlank() }?.let(LocalTime::parse),
-            endTime = request.endTime?.takeIf { it.isNotBlank() }?.let(LocalTime::parse)
-        )
+        val sourceUrls = scoreUrls(businessDate)
+        val fetchedPages = fetchPages(sourceUrls)
+        val startTime = request.startTime?.takeIf { it.isNotBlank() }?.let(LocalTime::parse)
+        val endTime = request.endTime?.takeIf { it.isNotBlank() }?.let(LocalTime::parse)
+        val rows = fetchedPages
+            .flatMap { page ->
+                parseScoreRows(
+                    html = page.html,
+                    businessDate = businessDate,
+                    leagueFilter = request.leagueFilter,
+                    startTime = startTime,
+                    endTime = endTime
+                )
+            }
+            .distinctBy(::scoreRowKey)
         val outputPath = writeScoreWorkbook(businessDate, rows)
         return BookkeepingTitan007ScoreFetchResultDto(
             businessDate = businessDate.toString(),
             fetchedCount = rows.size,
-            sourceUrl = sourceUrl.toString(),
+            sourceUrl = sourceUrls.joinToString(",") { it.toString() },
             savedPath = outputPath.toString()
         )
     }
 
-    private fun scoreUrl(businessDate: LocalDate): URI {
-        val prefix = if (businessDate.isBefore(LocalDate.now())) "Over_" else "Next_"
-        return URI.create("https://bf.titan007.com/football/$prefix${businessDate.format(DateTimeFormatter.BASIC_ISO_DATE)}.htm")
+    private fun scoreUrls(businessDate: LocalDate): List<URI> {
+        return listOf(businessDate.minusDays(2), businessDate.minusDays(1), businessDate, businessDate.plusDays(1))
+            .flatMap { date ->
+                val compactDate = date.format(DateTimeFormatter.BASIC_ISO_DATE)
+                listOf(
+                    "https://bf.titan007.com/football/Over_$compactDate.htm",
+                    "https://bf.titan007.com/football/Next_$compactDate.htm"
+                )
+            }
+            .map(URI::create)
+    }
+
+    private fun fetchPages(sourceUrls: List<URI>): List<Titan007FetchedPage> {
+        val futures = sourceUrls.map { uri ->
+            CompletableFuture.supplyAsync {
+                runCatching {
+                    Titan007FetchedPage(uri, decodeHtml(fetchPage(uri)))
+                }
+            }
+        }
+        val results = futures.map { it.join() }
+        val pages = results.mapNotNull { it.getOrNull() }
+        if (pages.isNotEmpty()) return pages
+        throw results.firstNotNullOfOrNull { it.exceptionOrNull() } ?: IllegalStateException("titan007 fetch failed")
     }
 
     private fun fetchPage(uri: URI): ByteArray {
         pageFetcher?.let { return it(uri) }
         val request = HttpRequest.newBuilder(uri)
-            .timeout(Duration.ofSeconds(30))
+            .timeout(Duration.ofSeconds(15))
             .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
             .GET()
             .build()
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray())
@@ -191,7 +222,10 @@ class BookkeepingTitan007ScoreCrawler(
 
     private fun isFinishedStatus(value: String): Boolean {
         val status = value.trim().lowercase()
-        return status == "完" || status.contains("完") || status in setOf("ft", "aet", "pen")
+        return status == "完" ||
+            status.contains("完") ||
+            status.contains("腰斩") ||
+            status in setOf("ft", "aet", "pen")
     }
 
     private fun normalizeScore(value: String): String {
@@ -221,7 +255,23 @@ class BookkeepingTitan007ScoreCrawler(
         score.first < score.second -> "主负"
         else -> "主平"
     }
+
+    private fun scoreRowKey(row: Titan007ParsedScoreRow): String =
+        listOf(row.leagueName, row.matchTime, row.homeTeam, row.awayTeam)
+            .joinToString("|") { normalizeKeyText(it) }
+
+    private fun normalizeKeyText(value: String): String =
+        value.lowercase()
+            .replace(Regex("\\s+"), "")
+            .replace("足球俱乐部", "")
+            .replace("俱乐部", "")
+            .replace("fc", "")
 }
+
+private data class Titan007FetchedPage(
+    val uri: URI,
+    val html: String
+)
 
 private data class Titan007ParsedScoreRow(
     val businessDate: String,

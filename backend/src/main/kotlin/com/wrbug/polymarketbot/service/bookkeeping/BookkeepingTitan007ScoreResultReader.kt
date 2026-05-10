@@ -148,6 +148,7 @@ data class BookkeepingTitan007ScoreRow(
 )
 
 class BookkeepingTitan007ScoreLookup(rows: List<BookkeepingTitan007ScoreRow>) {
+    private val scoreRows = rows
     private val scoresByTeams = rows.associate { row ->
         ScoreKey(normalizeTeam(row.homeTeam), normalizeTeam(row.awayTeam)) to row.fullTimeScore
     }
@@ -162,12 +163,77 @@ class BookkeepingTitan007ScoreLookup(rows: List<BookkeepingTitan007ScoreRow>) {
         val away = normalizeTeam(awayTeam)
         if (home.isBlank() || away.isBlank()) return ""
         scoresByTeams[ScoreKey(home, away)]?.let { return it }
-        return scoresByTeams[ScoreKey(away, home)]?.let(::reverseScore).orEmpty()
+        scoresByTeams[ScoreKey(away, home)]?.let { return reverseScore(it) }
+        return fuzzyActualScore(home, away)
+    }
+
+    private fun fuzzyActualScore(home: String, away: String): String {
+        val best = scoreRows
+            .flatMap { row ->
+                listOf(
+                    FuzzyScoreCandidate(
+                        score = row.fullTimeScore,
+                        homeScore = teamSimilarity(home, normalizeTeam(row.homeTeam)),
+                        awayScore = teamSimilarity(away, normalizeTeam(row.awayTeam)),
+                        reversed = false
+                    ),
+                    FuzzyScoreCandidate(
+                        score = row.fullTimeScore,
+                        homeScore = teamSimilarity(home, normalizeTeam(row.awayTeam)),
+                        awayScore = teamSimilarity(away, normalizeTeam(row.homeTeam)),
+                        reversed = true
+                    )
+                )
+            }
+            .filter { it.homeScore >= FUZZY_TEAM_MATCH_THRESHOLD && it.awayScore >= FUZZY_TEAM_MATCH_THRESHOLD }
+            .maxByOrNull { it.combinedScore }
+            ?: return ""
+
+        return if (best.reversed) reverseScore(best.score) else best.score
     }
 
     private data class ScoreKey(val homeTeam: String, val awayTeam: String)
 
+    private data class FuzzyScoreCandidate(
+        val score: String,
+        val homeScore: Double,
+        val awayScore: Double,
+        val reversed: Boolean
+    ) {
+        val combinedScore: Double = homeScore + awayScore
+    }
+
     private companion object {
+        const val FUZZY_TEAM_MATCH_THRESHOLD = 0.78
+
+        val TEAM_ALIASES: Map<String, String> = mapOf(
+            "布尔格佩罗纳斯" to "普瑞兰斯",
+            "布尔格佩罗纳" to "普瑞兰斯",
+            "bourgenbresseperonnas" to "普瑞兰斯",
+            "bourgperonnas" to "普瑞兰斯",
+            "瓦朗谢讷" to "瓦朗谢纳",
+            "valenciennes" to "瓦朗谢纳",
+            "桑德维肯斯" to "桑德维根斯",
+            "sandvikens" to "桑德维根斯",
+            "马约" to "五月二日体育会",
+            "2demayo" to "五月二日体育会",
+            "club2demayo" to "五月二日体育会",
+            "鲁比奥" to "鲁毕奥",
+            "rubionu" to "鲁毕奥",
+            "rubioñu" to "鲁毕奥",
+            "科罗纳" to "哥罗纳",
+            "koronakielce" to "哥罗纳",
+            "华保斯" to "瓦尔贝里",
+            "varbergs" to "瓦尔贝里",
+            "渥那模" to "韦纳穆",
+            "varnamo" to "韦纳穆",
+            "ifkvarnamo" to "韦纳穆",
+            "cs卡拉奥华大学" to "克拉约瓦大学",
+            "卡拉奥华大学" to "克拉约瓦大学",
+            "universitateacraiova" to "克拉约瓦大学",
+            "craiova" to "克拉约瓦大学"
+        )
+
         fun splitMatchName(value: String?): Pair<String, String>? {
             val cleaned = value?.trim().orEmpty()
             if (cleaned.isBlank()) return null
@@ -192,10 +258,43 @@ class BookkeepingTitan007ScoreLookup(rows: List<BookkeepingTitan007ScoreRow>) {
                 .replace("俱乐部", "")
                 .replace("fc", "")
                 .replace(Regex("[()（）\\[\\]【】]"), "")
+                .let { TEAM_ALIASES[it] ?: it }
 
         fun reverseScore(score: String): String {
             val parts = score.split("-")
             return if (parts.size == 2) "${parts[1]}-${parts[0]}" else score
+        }
+
+        fun teamSimilarity(left: String, right: String): Double {
+            if (left.isBlank() || right.isBlank()) return 0.0
+            if (left == right) return 1.0
+            if ((left.contains(right) || right.contains(left)) && minOf(left.length, right.length) >= 2) return 0.92
+            val maxLength = maxOf(left.length, right.length)
+            if (maxLength == 0) return 0.0
+            return 1.0 - (levenshteinDistance(left, right).toDouble() / maxLength.toDouble())
+        }
+
+        fun levenshteinDistance(left: String, right: String): Int {
+            if (left == right) return 0
+            if (left.isEmpty()) return right.length
+            if (right.isEmpty()) return left.length
+            var previous = IntArray(right.length + 1) { it }
+            var current = IntArray(right.length + 1)
+            for (i in left.indices) {
+                current[0] = i + 1
+                for (j in right.indices) {
+                    val substitutionCost = if (left[i] == right[j]) 0 else 1
+                    current[j + 1] = minOf(
+                        current[j] + 1,
+                        previous[j + 1] + 1,
+                        previous[j] + substitutionCost
+                    )
+                }
+                val tmp = previous
+                previous = current
+                current = tmp
+            }
+            return previous[right.length]
         }
     }
 }

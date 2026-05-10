@@ -135,10 +135,11 @@ $packageContainerName = "$packageSlug-mysql"
 $packageVolumeName = "$packageSlug-mysql-data"
 $packageAdminResetKey = New-RandomHex -Length 32
 
-foreach ($path in @($packageDir, $zipPath)) {
-    if (Test-Path $path) {
-        Remove-Item -LiteralPath $path -Recurse -Force
-    }
+if (Test-Path $packageDir) {
+    Get-ChildItem -LiteralPath $packageDir -Force | Remove-Item -Recurse -Force
+}
+if (Test-Path $zipPath) {
+    Remove-Item -LiteralPath $zipPath -Force
 }
 
 & $frontendBuildScript
@@ -168,7 +169,7 @@ if (-not (Test-Path $jarPath)) {
     throw "Backend jar not found after build: $jarPath"
 }
 
-New-Item -ItemType Directory -Path $packageDir | Out-Null
+New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $packageDir 'backend\build\libs') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $packageDir 'frontend') -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $packageDir 'scripts') -Force | Out-Null

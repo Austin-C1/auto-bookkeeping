@@ -124,7 +124,8 @@ class BookkeepingService(
         val messageGroups = whatsappGroups + telegramGroups
         val wagers = crownWagerRepository.findByBusinessDateOrderByCreatedAtDesc(date).map { it.toDto() }
         val allWhatsappOrders = whatsappOrderRepository.findByBusinessDateOrderByCreatedAtDesc(date)
-        val whatsappOrders = ordersForWorkspace(workspaceType, allWhatsappOrders.map { it.toDto() })
+        val rawWhatsappOrders = ordersForWorkspace(workspaceType, allWhatsappOrders.map { it.toDto() })
+        val whatsappOrders = excelReportWriter.withAutoSettlementResults(date, rawWhatsappOrders)
         val latestTask = taskRepository.findTopByBusinessDateAndWorkspaceTypeOrderByCreatedAtDesc(date, workspaceType)
         val reconciliationResults = latestTask?.id
             ?.let { reconciliationRepository.findByTaskIdOrderByCreatedAtAsc(it).map { item -> item.toDto() } }
@@ -858,7 +859,8 @@ class BookkeepingService(
                 }
             ).map { it.toDto() }
             val wagerDtos = wagers.map { it.toDto() }
-            val whatsappOrderDtos = ordersForWorkspace(workspaceType, allWhatsappOrders.map { it.toDto() })
+            val rawWhatsappOrderDtos = ordersForWorkspace(workspaceType, allWhatsappOrders.map { it.toDto() })
+            val whatsappOrderDtos = excelReportWriter.withAutoSettlementResults(request.businessDate, rawWhatsappOrderDtos)
             val summary = if (workspaceType == "rolling") {
                 buildRollingSummaryDto(accounts, wagerDtos, whatsappOrderDtos)
             } else {

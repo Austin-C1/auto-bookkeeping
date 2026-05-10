@@ -4,10 +4,14 @@ import com.wrbug.polymarketbot.dto.BookkeepingDailySummaryDto
 import com.wrbug.polymarketbot.dto.BookkeepingCrownWagerDto
 import com.wrbug.polymarketbot.dto.BookkeepingWhatsappGroupDto
 import com.wrbug.polymarketbot.dto.BookkeepingWhatsappOrderDto
+import com.wrbug.polymarketbot.service.bookkeeping.BookkeepingCalculator
+import com.wrbug.polymarketbot.service.bookkeeping.BookkeepingCalculatorAccount
+import com.wrbug.polymarketbot.service.bookkeeping.BookkeepingCalculatorWhatsappOrder
 import com.wrbug.polymarketbot.service.bookkeeping.BookkeepingExcelReportWriter
 import com.wrbug.polymarketbot.service.bookkeeping.BookkeepingTitan007ScoreResultReader
 import com.wrbug.polymarketbot.service.bookkeeping.BookkeepingWhatsappAmountParser
 import org.apache.poi.ss.usermodel.DataFormatter
+import org.apache.poi.ss.usermodel.HorizontalAlignment
 import org.apache.poi.ss.usermodel.Sheet
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
@@ -365,6 +369,7 @@ class BookkeepingFoundationTest {
         )
         listOf(
             "ordersForWorkspace(workspaceType, allWhatsappOrders.map { it.toDto() })",
+            "withAutoSettlementResults(",
             "workspaceWhatsappOrders = allWhatsappOrders.filter { orderMatchesWorkspace(workspaceType, it.direction) }",
             "private fun ordersForWorkspace",
             "private fun orderMatchesWorkspace"
@@ -557,18 +562,22 @@ class BookkeepingFoundationTest {
 
         WorkbookFactory.create(upstreamFile.toFile()).use { workbook ->
             assertEquals(2, workbook.numberOfSheets)
-            assertEquals("10000", sheetRow(workbook.getSheet("上游A群"), 1)[6])
-            assertEquals("20000", sheetRow(workbook.getSheet("上游B群"), 1)[6])
-            assertEquals(1, workbook.getSheet("上游A群").lastRowNum)
-            assertEquals(1, workbook.getSheet("上游B群").lastRowNum)
+            assertEquals("10000U", sheetRow(workbook.getSheet("上游A群"), 1)[8])
+            assertEquals("20000U", sheetRow(workbook.getSheet("上游B群"), 1)[8])
+            assertBillTotalRow(workbook.getSheet("上游A群"), 2, "10000U", "-15000")
+            assertBillTotalRow(workbook.getSheet("上游B群"), 2, "20000U", "-32000")
+            assertEquals(2, workbook.getSheet("上游A群").lastRowNum)
+            assertEquals(2, workbook.getSheet("上游B群").lastRowNum)
             assertNull(workbook.getSheet("下游A群"))
         }
         WorkbookFactory.create(downstreamFile.toFile()).use { workbook ->
             assertEquals(2, workbook.numberOfSheets)
-            assertEquals("30000", sheetRow(workbook.getSheet("下游A群"), 1)[6])
-            assertEquals("40000", sheetRow(workbook.getSheet("下游B群"), 1)[6])
-            assertEquals(1, workbook.getSheet("下游A群").lastRowNum)
-            assertEquals(1, workbook.getSheet("下游B群").lastRowNum)
+            assertEquals("30000U", sheetRow(workbook.getSheet("下游A群"), 1)[8])
+            assertEquals("40000U", sheetRow(workbook.getSheet("下游B群"), 1)[8])
+            assertBillTotalRow(workbook.getSheet("下游A群"), 2, "30000U", "51000")
+            assertBillTotalRow(workbook.getSheet("下游B群"), 2, "40000U", "72000")
+            assertEquals(2, workbook.getSheet("下游A群").lastRowNum)
+            assertEquals(2, workbook.getSheet("下游B群").lastRowNum)
             assertNull(workbook.getSheet("上游A群"))
         }
 
@@ -623,14 +632,18 @@ class BookkeepingFoundationTest {
 
         WorkbookFactory.create(upstreamFile.toFile()).use { workbook ->
             assertEquals(2, workbook.numberOfSheets)
-            assertEquals("11000", sheetRow(workbook.getSheet("滚球上游A群"), 1)[6])
-            assertEquals("22000", sheetRow(workbook.getSheet("滚球上游B群"), 1)[6])
+            assertEquals("11000U", sheetRow(workbook.getSheet("滚球上游A群"), 1)[8])
+            assertEquals("22000U", sheetRow(workbook.getSheet("滚球上游B群"), 1)[8])
+            assertBillTotalRow(workbook.getSheet("滚球上游A群"), 2, "11000U", "-16500")
+            assertBillTotalRow(workbook.getSheet("滚球上游B群"), 2, "22000U", "-35200")
             assertNull(workbook.getSheet("滚球下游A群"))
         }
         WorkbookFactory.create(downstreamFile.toFile()).use { workbook ->
             assertEquals(2, workbook.numberOfSheets)
-            assertEquals("33000", sheetRow(workbook.getSheet("滚球下游A群"), 1)[6])
-            assertEquals("44000", sheetRow(workbook.getSheet("滚球下游B群"), 1)[6])
+            assertEquals("33000U", sheetRow(workbook.getSheet("滚球下游A群"), 1)[8])
+            assertEquals("44000U", sheetRow(workbook.getSheet("滚球下游B群"), 1)[8])
+            assertBillTotalRow(workbook.getSheet("滚球下游A群"), 2, "33000U", "56100")
+            assertBillTotalRow(workbook.getSheet("滚球下游B群"), 2, "44000U", "79200")
             assertNull(workbook.getSheet("滚球上游A群"))
         }
 
@@ -739,7 +752,7 @@ class BookkeepingFoundationTest {
                 wagers = emptyList(),
                 whatsappOrders = listOf(
                     whatsappOrder("UP-1", "upstream", groupId = 1, amount = "40000", odds = "1.87"),
-                    whatsappOrder("UP-2", "upstream", groupId = 1, amount = "20000", odds = "1.80"),
+                    whatsappOrder("UP-2", "upstream", groupId = 1, amount = "20000", odds = "1.80", marketText = "大 2.5"),
                     whatsappOrder("DOWN-1", "downstream", groupId = 2, amount = "10000", odds = "1.89"),
                     whatsappOrder("FOLLOW-1", "company_follow", groupId = 3, amount = "5000", odds = "1.86")
                 ),
@@ -758,10 +771,11 @@ class BookkeepingFoundationTest {
                 sheetRow(workbook.getSheet("上游群注单"), 0)
             )
             assertRowEquals(
-                listOf("2026-05-08", "1", "英超", "诺丁汉 vs 曼城", "让球 主 -0.5 @ 1.87", "", "40000", "赢", "-74800"),
+                listOf("2026-05-08", "1", "英超", "让球", "诺丁汉 vs 曼城", "让球 主 -0.5 @ 1.87", "", "", "40000U", "赢", "-74800"),
                 sheetRow(workbook.getSheet("上游群注单"), 1)
             )
             assertEquals("", sheetRow(workbook.getSheet("上游群注单"), 2)[0])
+            assertEquals("大小", sheetRow(workbook.getSheet("上游群注单"), 2)[3])
 
             assertRowEquals(
                 billHeaders(),
@@ -773,13 +787,14 @@ class BookkeepingFoundationTest {
                 sheetRow(workbook.getSheet("公司盈亏表"), 0)
             )
             val waterRow = sheetRow(workbook.getSheet("公司盈亏表"), 5)
-            assertEquals("盈亏水金额", waterRow[7])
-            assertEquals("200", waterRow[8])
+            assertEquals("盈亏水金额", waterRow[9])
+            assertEquals("200", waterRow[10])
             val dailyRow = sheetRow(workbook.getSheet("公司盈亏表"), 6)
-            assertEquals("日盈亏", dailyRow[7])
-            assertEquals("200", dailyRow[8])
+            assertEquals("日盈亏", dailyRow[9])
+            assertEquals("200", dailyRow[10])
             (0 until workbook.numberOfSheets).forEach { index ->
                 assertRequestedColumnWidths(workbook.getSheetAt(index))
+                assertSheetValuesCentered(workbook.getSheetAt(index))
             }
         }
         Files.deleteIfExists(file)
@@ -849,7 +864,7 @@ class BookkeepingFoundationTest {
                 sheetRow(workbook.getSheet("滚球群注单"), 0)
             )
             assertRowEquals(
-                listOf("2026-05-08", "1", "英超", "诺丁汉 vs 曼城", "让球 主 -0.5 @ 0.83", "", "10000", "赢", "8300"),
+                listOf("2026-05-08", "1", "英超", "让球", "诺丁汉 vs 曼城", "让球 主 -0.5 @ 0.83", "0-1", "", "10000U", "赢", "8300"),
                 sheetRow(workbook.getSheet("滚球群注单"), 1)
             )
             assertRequestedColumnWidths(workbook.getSheet("滚球群注单"))
@@ -886,7 +901,7 @@ class BookkeepingFoundationTest {
         )
 
         WorkbookFactory.create(file.toFile()).use { workbook ->
-            assertEquals("2-1", sheetRow(workbook.getSheet("上游A群"), 1)[5])
+            assertEquals("2-1", sheetRow(workbook.getSheet("上游A群"), 1)[7])
         }
         Files.deleteIfExists(file)
     }
@@ -919,7 +934,224 @@ class BookkeepingFoundationTest {
         )
 
         WorkbookFactory.create(file.toFile()).use { workbook ->
-            assertEquals("", sheetRow(workbook.getSheet("上游A群"), 1)[5])
+            assertEquals("", sheetRow(workbook.getSheet("上游A群"), 1)[7])
+        }
+        Files.deleteIfExists(file)
+    }
+
+    @Test
+    fun `excel writer derives settlement result and upstream profit from titan007 score and market`(@TempDir scoreDir: Path) {
+        writeTitanScoreWorkbook(
+            scoreDir,
+            "2026-05-10",
+            listOf(
+                ScoreFixture("阿塞超", "卡巴拉", "卡拉巴克", "1-1"),
+                ScoreFixture("斯伐超降", "扑雷索夫", "斯卡利卡", "3-0"),
+                ScoreFixture("捷甲冠", "布拉格斯拉维亚", "布拉格斯巴达", "3-2"),
+                ScoreFixture("法丙", "普瑞兰斯", "瓦朗谢纳", "1-0"),
+                ScoreFixture("瑞典甲", "桑德维根斯", "卢恩斯基尔", "1-0"),
+                ScoreFixture("巴拉甲春", "五月二日体育会", "鲁毕奥", "2-0"),
+                ScoreFixture("玻利甲", "皇家托马亚波", "圣安东尼奥布鲁布鲁", "1-0")
+            )
+        )
+        val writer = BookkeepingExcelReportWriter(BookkeepingTitan007ScoreResultReader(listOf(scoreDir)))
+        val file = Path.of(
+            writer.writeDailyReport(
+                businessDate = "2026-05-10",
+                taskId = 9806L,
+                workspaceType = "prematch",
+                reportType = "upstream_orders",
+                summary = emptySummary(),
+                accounts = emptyList(),
+                wagers = emptyList(),
+                whatsappOrders = listOf(
+                    whatsappOrder("AUTO-1", "upstream", groupId = 1, amount = "7500", odds = "0.9", marketText = "大 2.5 / 3", matchName = "卡巴拉 v 卡拉巴克", leagueName = "阿塞拜疆超级联赛", settlementResult = null),
+                    whatsappOrder("AUTO-2", "upstream", groupId = 1, amount = "2000", odds = "0.94", marketText = "大 2 / 2.5", matchName = "扑雷索夫 v 斯卡利卡", leagueName = "斯洛伐克超级联赛-附加赛", settlementResult = null),
+                    whatsappOrder("AUTO-3", "upstream", groupId = 1, amount = "7500", odds = "0.89", marketText = "大 2.5", matchName = "布拉格斯拉维亚 v 布拉格斯巴达", leagueName = "捷克甲组联赛-附加赛", settlementResult = null),
+                    whatsappOrder("AUTO-4", "upstream", groupId = 1, amount = "7500", odds = "0.86", marketText = "瓦朗谢讷 +0.5", matchName = "布尔格佩罗纳斯 v 瓦朗谢讷", leagueName = "法国全国联赛", settlementResult = null),
+                    whatsappOrder("AUTO-5", "upstream", groupId = 1, amount = "7500", odds = "0.93", marketText = "大 2.5 / 3", matchName = "桑德维肯斯 v 卢恩斯基尔", leagueName = "瑞典超级甲组联赛", settlementResult = null),
+                    whatsappOrder("AUTO-6", "upstream", groupId = 1, amount = "7500", odds = "0.82", marketText = "马约 0", matchName = "马约 v 鲁毕奥", leagueName = "巴拉圭甲组联赛", settlementResult = null),
+                    whatsappOrder("AUTO-7", "upstream", groupId = 1, amount = "2000", odds = "0.88", marketText = "小 3 / 3.5", matchName = "皇家托马亚波 v 圣安东尼奥布鲁布鲁", leagueName = "玻利维亚甲组联赛", settlementResult = null)
+                ),
+                whatsappGroups = listOf(whatsappGroup(1, "上游A群", role = "upstream")),
+                reconciliationResults = emptyList()
+            )
+        )
+
+        WorkbookFactory.create(file.toFile()).use { workbook ->
+            val sheet = workbook.getSheet("上游A群")
+            assertEquals("输", sheetRow(sheet, 1)[9])
+            assertEquals("7500", sheetRow(sheet, 1)[10])
+            assertEquals("赢", sheetRow(sheet, 2)[9])
+            assertEquals("-1880", sheetRow(sheet, 2)[10])
+            assertEquals("赢", sheetRow(sheet, 3)[9])
+            assertEquals("-6675", sheetRow(sheet, 3)[10])
+            assertEquals("输", sheetRow(sheet, 4)[9])
+            assertEquals("7500", sheetRow(sheet, 4)[10])
+            assertEquals("输", sheetRow(sheet, 5)[9])
+            assertEquals("7500", sheetRow(sheet, 5)[10])
+            assertEquals("赢", sheetRow(sheet, 6)[9])
+            assertEquals("-6150", sheetRow(sheet, 6)[10])
+            assertEquals("赢", sheetRow(sheet, 7)[9])
+            assertEquals("-1760", sheetRow(sheet, 7)[10])
+            assertBillTotalRow(sheet, 8, "41500U", "6035")
+        }
+        Files.deleteIfExists(file)
+    }
+
+    @Test
+    fun `excel writer strips odds suffix before deriving settlement from market text`(@TempDir scoreDir: Path) {
+        writeTitanScoreWorkbook(scoreDir, "2026-05-10", "波兰超", "琴斯托霍瓦", "哥罗纳", "2-0")
+        val writer = BookkeepingExcelReportWriter(BookkeepingTitan007ScoreResultReader(listOf(scoreDir)))
+        val file = Path.of(
+            writer.writeDailyReport(
+                businessDate = "2026-05-10",
+                taskId = 9808L,
+                workspaceType = "rolling",
+                reportType = "rolling_group_orders",
+                summary = emptySummary(),
+                accounts = emptyList(),
+                wagers = emptyList(),
+                whatsappOrders = listOf(
+                    whatsappOrder(
+                        "ROLLING-ODDS-SUFFIX",
+                        "rolling_company",
+                        groupId = 1,
+                        amount = "104000",
+                        odds = "1.00",
+                        rawMessage = """
+                            1.足球 (滚球) 大 / 小 (0 - 0)（大鬼）
+                            波兰超级联赛
+                            琴斯托霍瓦 v 科罗纳
+                            大 2.5 @ 1.00
+                            部门跟104000r 确认
+                        """.trimIndent(),
+                        marketText = "大 2.5 @ 1.00",
+                        matchName = "琴斯托霍瓦 v 科罗纳",
+                        leagueName = "波兰超级联赛",
+                        settlementResult = null
+                    )
+                ),
+                whatsappGroups = listOf(whatsappGroup(1, "公司部门", role = "rolling_company")),
+                reconciliationResults = emptyList()
+            )
+        )
+
+        WorkbookFactory.create(file.toFile()).use { workbook ->
+            val row = sheetRow(workbook.getSheet("滚球群注单"), 1)
+            assertEquals("大 2.5 @ 1.00", row[5])
+            assertEquals("0-0", row[6])
+            assertEquals("2-0", row[7])
+            assertEquals("104000U", row[8])
+            assertEquals("输", row[9])
+            assertEquals("-104000", row[10])
+            assertEquals("总投注额度", sheetRow(workbook.getSheet("滚球群注单"), 2)[7])
+            assertEquals("104000U", sheetRow(workbook.getSheet("滚球群注单"), 2)[8])
+            assertEquals("总盈亏", sheetRow(workbook.getSheet("滚球群注单"), 2)[9])
+            assertEquals("-104000", sheetRow(workbook.getSheet("滚球群注单"), 2)[10])
+        }
+        Files.deleteIfExists(file)
+    }
+
+    @Test
+    fun `auto settlement results are reused by rolling summary calculations`(@TempDir scoreDir: Path) {
+        writeTitanScoreWorkbook(scoreDir, "2026-05-10", "波兰超", "琴斯托霍瓦", "哥罗纳", "2-0")
+        val writer = BookkeepingExcelReportWriter(BookkeepingTitan007ScoreResultReader(listOf(scoreDir)))
+        val orders = writer.withAutoSettlementResults(
+            "2026-05-10",
+            listOf(
+                whatsappOrder(
+                    "ROLLING-SUMMARY-AUTO",
+                    "rolling_company",
+                    groupId = 1,
+                    amount = "104000",
+                    odds = "0.9",
+                    marketText = "大 2.5 @ 0.9",
+                    matchName = "琴斯托霍瓦 v 科罗纳",
+                    leagueName = "波兰超级联赛",
+                    settlementResult = null
+                )
+            )
+        )
+
+        assertEquals("输", orders.single().settlementResult)
+
+        val summary = BookkeepingCalculator().buildRollingSummary(
+            accounts = listOf(BookkeepingCalculatorAccount(lastLoginStatus = "success")),
+            wagers = emptyList(),
+            whatsappOrders = orders.map {
+                BookkeepingCalculatorWhatsappOrder(
+                    id = it.id,
+                    groupId = it.groupId,
+                    orderKey = it.orderKey,
+                    direction = it.direction,
+                    parseStatus = it.parseStatus,
+                    leagueName = it.leagueName,
+                    matchName = it.matchName,
+                    marketText = it.marketText,
+                    oddsValue = it.oddsValue,
+                    amount = it.amount,
+                    settlementResult = it.settlementResult
+                )
+            }
+        )
+
+        assertEquals("-104000", summary.rollingGroupSettlement.stripTrailingZeros().toPlainString())
+        assertEquals("104000", summary.todayProfit.stripTrailingZeros().toPlainString())
+    }
+
+    @Test
+    fun `excel writer derives asian half win push and half lose outcomes from titan007 score`(@TempDir scoreDir: Path) {
+        writeTitanScoreWorkbook(
+            scoreDir,
+            "2026-05-10",
+            listOf(
+                ScoreFixture("测试联赛", "大赢半主", "大赢半客", "3-0"),
+                ScoreFixture("测试联赛", "走盘主", "走盘客", "1-1"),
+                ScoreFixture("测试联赛", "小赢半主", "小赢半客", "1-1"),
+                ScoreFixture("测试联赛", "小输半主", "小输半客", "2-1"),
+                ScoreFixture("测试联赛", "让赢半主", "让赢半客", "1-0"),
+                ScoreFixture("测试联赛", "让走主", "让走客", "1-1")
+            )
+        )
+        val writer = BookkeepingExcelReportWriter(BookkeepingTitan007ScoreResultReader(listOf(scoreDir)))
+        val file = Path.of(
+            writer.writeDailyReport(
+                businessDate = "2026-05-10",
+                taskId = 9807L,
+                workspaceType = "prematch",
+                reportType = "upstream_orders",
+                summary = emptySummary(),
+                accounts = emptyList(),
+                wagers = emptyList(),
+                whatsappOrders = listOf(
+                    whatsappOrder("HALF-1", "upstream", groupId = 1, amount = "1000", odds = "1", marketText = "大 2.5 / 3", matchName = "大赢半主 v 大赢半客", leagueName = "测试联赛", settlementResult = null),
+                    whatsappOrder("HALF-2", "upstream", groupId = 1, amount = "1000", odds = "1", marketText = "大 2", matchName = "走盘主 v 走盘客", leagueName = "测试联赛", settlementResult = null),
+                    whatsappOrder("HALF-3", "upstream", groupId = 1, amount = "1000", odds = "1", marketText = "小 2 / 2.5", matchName = "小赢半主 v 小赢半客", leagueName = "测试联赛", settlementResult = null),
+                    whatsappOrder("HALF-4", "upstream", groupId = 1, amount = "1000", odds = "1", marketText = "小 2.5 / 3", matchName = "小输半主 v 小输半客", leagueName = "测试联赛", settlementResult = null),
+                    whatsappOrder("HALF-5", "upstream", groupId = 1, amount = "1000", odds = "1", marketText = "让赢半主 -0.5 / -1", matchName = "让赢半主 v 让赢半客", leagueName = "测试联赛", settlementResult = null),
+                    whatsappOrder("HALF-6", "upstream", groupId = 1, amount = "1000", odds = "1", marketText = "让走主 0", matchName = "让走主 v 让走客", leagueName = "测试联赛", settlementResult = null)
+                ),
+                whatsappGroups = listOf(whatsappGroup(1, "上游A群", role = "upstream")),
+                reconciliationResults = emptyList()
+            )
+        )
+
+        WorkbookFactory.create(file.toFile()).use { workbook ->
+            val sheet = workbook.getSheet("上游A群")
+            assertEquals("赢半", sheetRow(sheet, 1)[9])
+            assertEquals("-500", sheetRow(sheet, 1)[10])
+            assertEquals("走盘", sheetRow(sheet, 2)[9])
+            assertEquals("0", sheetRow(sheet, 2)[10])
+            assertEquals("赢半", sheetRow(sheet, 3)[9])
+            assertEquals("-500", sheetRow(sheet, 3)[10])
+            assertEquals("输半", sheetRow(sheet, 4)[9])
+            assertEquals("500", sheetRow(sheet, 4)[10])
+            assertEquals("赢半", sheetRow(sheet, 5)[9])
+            assertEquals("-500", sheetRow(sheet, 5)[10])
+            assertEquals("走盘", sheetRow(sheet, 6)[9])
+            assertEquals("0", sheetRow(sheet, 6)[10])
+            assertBillTotalRow(sheet, 7, "6000U", "-1000")
         }
         Files.deleteIfExists(file)
     }
@@ -988,14 +1220,16 @@ class BookkeepingFoundationTest {
                 sheetRow(workbook.getSheet("皇冠注单"), 0)
             )
             assertRowEquals(
-                listOf("2026-05-08", "1", "日本 J1百年构想联赛", "清水心跳 vs 大阪樱花", "让球 大阪樱花 +0 / 0.5 @ 0.83", "", "10000", "赢", "8300"),
+                listOf("2026-05-08", "1", "日本 J1百年构想联赛", "让球", "清水心跳 vs 大阪樱花", "让球 大阪樱花 +0 / 0.5 @ 0.83", "", "", "10000U", "赢", "8300"),
                 sheetRow(workbook.getSheet("皇冠注单"), 1)
             )
             assertEquals("", sheetRow(workbook.getSheet("皇冠注单"), 2)[0])
             assertEquals("2", sheetRow(workbook.getSheet("皇冠注单"), 2)[1])
-            assertEquals("RB大宫松鼠 vs 磐城", sheetRow(workbook.getSheet("皇冠注单"), 2)[3])
-            assertEquals("输", sheetRow(workbook.getSheet("皇冠注单"), 2)[7])
+            assertEquals("RB大宫松鼠 vs 磐城", sheetRow(workbook.getSheet("皇冠注单"), 2)[4])
+            assertEquals("输", sheetRow(workbook.getSheet("皇冠注单"), 2)[9])
+            assertBillTotalRow(workbook.getSheet("皇冠注单"), 3, "20000U", "-1700")
             assertRequestedColumnWidths(workbook.getSheet("皇冠注单"))
+            assertSheetValuesCentered(workbook.getSheet("皇冠注单"))
         }
         Files.deleteIfExists(file)
     }
@@ -1110,7 +1344,11 @@ class BookkeepingFoundationTest {
         groupId: Long,
         amount: String,
         odds: String,
-        rawMessage: String = "测试订单"
+        rawMessage: String = "测试订单",
+        marketText: String = "让球 主 -0.5",
+        matchName: String = "诺丁汉 vs 曼城",
+        leagueName: String = "英超",
+        settlementResult: String? = "赢"
     ) = BookkeepingWhatsappOrderDto(
         id = orderKey.hashCode().toLong(),
         taskId = null,
@@ -1121,14 +1359,14 @@ class BookkeepingFoundationTest {
         messageTime = null,
         senderName = "小Q",
         rawMessage = rawMessage,
-        leagueName = "英超",
-        matchName = "诺丁汉 vs 曼城",
-        marketText = "让球 主 -0.5",
+        leagueName = leagueName,
+        matchName = matchName,
+        marketText = marketText,
         oddsValue = BigDecimal(odds),
         amount = BigDecimal(amount),
         currency = "USDT",
         parseStatus = "valid",
-        settlementResult = "赢",
+        settlementResult = settlementResult,
         createdAt = 0,
         updatedAt = 0
     )
@@ -1189,6 +1427,12 @@ class BookkeepingFoundationTest {
         homeTeam: String,
         awayTeam: String,
         score: String
+    ): Path = writeTitanScoreWorkbook(dir, businessDate, listOf(ScoreFixture(leagueName, homeTeam, awayTeam, score)))
+
+    private fun writeTitanScoreWorkbook(
+        dir: Path,
+        businessDate: String,
+        scores: List<ScoreFixture>
     ): Path {
         Files.createDirectories(dir)
         val file = dir.resolve("${businessDate.replace("-", "")}_比赛数据.xlsx")
@@ -1198,14 +1442,23 @@ class BookkeepingFoundationTest {
             listOf("日期", "联赛", "详细时间", "主队", "比分", "客队").forEachIndexed { index, value ->
                 header.createCell(index).setCellValue(value)
             }
-            val row = sheet.createRow(1)
-            listOf(businessDate, leagueName, "20:00", homeTeam, score, awayTeam).forEachIndexed { index, value ->
-                row.createCell(index).setCellValue(value)
+            scores.forEachIndexed { rowIndex, fixture ->
+                val row = sheet.createRow(rowIndex + 1)
+                listOf(businessDate, fixture.leagueName, "20:00", fixture.homeTeam, fixture.score, fixture.awayTeam).forEachIndexed { index, value ->
+                    row.createCell(index).setCellValue(value)
+                }
             }
             Files.newOutputStream(file).use { workbook.write(it) }
         }
         return file
     }
+
+    private data class ScoreFixture(
+        val leagueName: String,
+        val homeTeam: String,
+        val awayTeam: String,
+        val score: String
+    )
 
     private fun sheetRow(sheet: org.apache.poi.ss.usermodel.Sheet, rowIndex: Int): List<String> {
         val formatter = DataFormatter()
@@ -1218,7 +1471,7 @@ class BookkeepingFoundationTest {
     }
 
     private fun billHeaders() =
-        listOf("日期", "序号", "联赛类型", "比赛队伍", "投注盘口及赔率", "实际比分", "投注额度", "赛果", "盈亏")
+        listOf("日期", "序号", "联赛类型", "投注类型", "比赛队伍", "投注盘口及赔率", "投注时比分", "实际比分", "投注额度", "赛果", "盈亏")
 
     private fun assertRequestedColumnWidths(sheet: Sheet) {
         val formatter = DataFormatter()
@@ -1227,11 +1480,36 @@ class BookkeepingFoundationTest {
             val headerText = formatter.formatCellValue(header.getCell(index))
             val expectedWidth = when (headerText) {
                 "联赛类型" -> 25
-                "比赛队伍" -> 25
-                "投注盘口及赔率" -> 30
+                "比赛队伍" -> 35
+                "投注盘口及赔率" -> 35
                 else -> 20
             }
             assertEquals(expectedWidth * 256, sheet.getColumnWidth(index), "wrong width for ${sheet.sheetName}!$headerText")
+        }
+    }
+
+    private fun assertBillTotalRow(sheet: Sheet, rowIndex: Int, totalStake: String, totalProfit: String) {
+        val row = sheetRow(sheet, rowIndex)
+        assertEquals("总投注额度", row[7])
+        assertEquals(totalStake, row[8])
+        assertEquals("总盈亏", row[9])
+        assertEquals(totalProfit, row[10])
+    }
+
+    private fun assertSheetValuesCentered(sheet: Sheet) {
+        val formatter = DataFormatter()
+        (0..sheet.lastRowNum).forEach rows@{ rowIndex ->
+            val row = sheet.getRow(rowIndex) ?: return@rows
+            (0 until row.lastCellNum).forEach cells@{ cellIndex ->
+                val cell = row.getCell(cellIndex) ?: return@cells
+                if (formatter.formatCellValue(cell).isNotBlank()) {
+                    assertEquals(
+                        HorizontalAlignment.CENTER,
+                        cell.cellStyle.alignment,
+                        "cell ${sheet.sheetName}!${cell.address} should be centered"
+                    )
+                }
+            }
         }
     }
 }
