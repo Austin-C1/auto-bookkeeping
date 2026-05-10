@@ -123,7 +123,9 @@ class BookkeepingService(
         val telegramGroups = listTelegramGroups()
         val messageGroups = whatsappGroups + telegramGroups
         val wagers = crownWagerRepository.findByBusinessDateOrderByCreatedAtDesc(date).map { it.toDto() }
-        val allWhatsappOrders = whatsappOrderRepository.findByBusinessDateOrderByCreatedAtDesc(date)
+        val allWhatsappOrders = BookkeepingWhatsappOrderPrecision.deduplicateExistingOrders(
+            whatsappOrderRepository.findByBusinessDateOrderByCreatedAtDesc(date)
+        )
         val rawWhatsappOrders = ordersForWorkspace(workspaceType, allWhatsappOrders.map { it.toDto() })
         val whatsappOrders = excelReportWriter.withAutoSettlementResults(date, rawWhatsappOrders)
         val latestTask = taskRepository.findTopByBusinessDateAndWorkspaceTypeOrderByCreatedAtDesc(date, workspaceType)
@@ -604,7 +606,7 @@ class BookkeepingService(
             .mapNotNull { group -> group.sourceChatId?.takeIf { it.isNotBlank() }?.let { it to group } }
             .toMap()
         val messagesForImport = messagesAfterLastScanned(groups, bridgeResponse.messages, request.force)
-        val imports = messagesForImport.flatMap { message ->
+        val imports = BookkeepingWhatsappOrderPrecision.deduplicateImports(messagesForImport.flatMap { message ->
             val sourceChatId = message.chatId?.trim()?.takeIf { it.isNotEmpty() } ?: return@flatMap emptyList()
             val group = groupsBySourceChatId[sourceChatId] ?: return@flatMap emptyList()
             parseWhatsappMessageBlocks(message.body.orEmpty()).mapIndexed { index, parsed ->
@@ -625,7 +627,7 @@ class BookkeepingService(
                     parseStatus = parsed.parseStatus
                 )
             }
-        }
+        })
 
         val importResult = if (imports.isEmpty()) {
             ImportBookkeepingWhatsappOrdersResultDto(request.businessDate, 0, 0)
@@ -716,7 +718,7 @@ class BookkeepingService(
             .mapNotNull { group -> group.sourceChatId?.takeIf { it.isNotBlank() }?.let { it to group } }
             .toMap()
         val messagesForImport = messagesAfterLastScanned(groups, bridgeResponse.messages, request.force)
-        val imports = messagesForImport.flatMap { message ->
+        val imports = BookkeepingWhatsappOrderPrecision.deduplicateImports(messagesForImport.flatMap { message ->
             val sourceChatId = message.chatId?.trim()?.takeIf { it.isNotEmpty() } ?: return@flatMap emptyList()
             val group = groupsBySourceChatId[sourceChatId] ?: return@flatMap emptyList()
             parseWhatsappMessageBlocks(message.body.orEmpty()).mapIndexed { index, parsed ->
@@ -737,7 +739,7 @@ class BookkeepingService(
                     parseStatus = parsed.parseStatus
                 )
             }
-        }
+        })
 
         val importResult = if (imports.isEmpty()) {
             ImportBookkeepingWhatsappOrdersResultDto(request.businessDate, 0, 0)
@@ -764,18 +766,30 @@ class BookkeepingService(
     fun importWhatsappOrders(request: ImportBookkeepingWhatsappOrdersRequest): ImportBookkeepingWhatsappOrdersResultDto {
         validateBusinessDate(request.businessDate)
         val groups = whatsappGroupRepository.findAll().associateBy { it.sourceType to it.groupKey }
+        val existingOrders = whatsappOrderRepository.findByBusinessDateOrderByCreatedAtDesc(request.businessDate)
+        val existingByOrderKey = existingOrders.associateBy { it.orderKey }
+        val existingIdentityKeys = existingOrders.mapNotNull { BookkeepingWhatsappOrderPrecision.existingIdentityKey(it) }.toMutableSet()
+        val currentImportIdentityKeys = mutableSetOf<String>()
         val now = System.currentTimeMillis()
         var imported = 0
         var updated = 0
-        val orders = request.orders.map { item ->
+        val orders = BookkeepingWhatsappOrderPrecision.deduplicateImports(request.orders).mapNotNull { item ->
             val orderKey = cleanRequired(item.orderKey, "orderKey")
-            val existing = whatsappOrderRepository.findByBusinessDateAndOrderKey(request.businessDate, orderKey)
             val sourceType = normaliseMessageSourceType(item.sourceType)
+            val group = groups[sourceType to item.groupKey]
+            val existing = existingByOrderKey[orderKey]
+            val identityKey = BookkeepingWhatsappOrderPrecision.importIdentityKey(item, group?.id, sourceType)
+            if (existing == null && identityKey != null) {
+                if (identityKey in existingIdentityKeys || !currentImportIdentityKeys.add(identityKey)) {
+                    return@mapNotNull null
+                }
+                existingIdentityKeys.add(identityKey)
+            }
             if (existing == null) imported += 1 else updated += 1
             BookkeepingWhatsappOrder(
                 id = existing?.id,
                 taskId = existing?.taskId,
-                groupId = groups[sourceType to item.groupKey]?.id,
+                groupId = group?.id,
                 sourceType = sourceType,
                 businessDate = request.businessDate,
                 orderKey = orderKey,
@@ -831,7 +845,9 @@ class BookkeepingService(
             val accounts = listCrownAccounts()
             val groups = whatsappGroupRepository.findAllByOrderByDisplayNameAsc().map { it.toDto() }
             val wagers = crownWagerRepository.findByBusinessDateOrderByCreatedAtDesc(request.businessDate)
-            val allWhatsappOrders = whatsappOrderRepository.findByBusinessDateOrderByCreatedAtDesc(request.businessDate)
+            val allWhatsappOrders = BookkeepingWhatsappOrderPrecision.deduplicateExistingOrders(
+                whatsappOrderRepository.findByBusinessDateOrderByCreatedAtDesc(request.businessDate)
+            )
             val workspaceWhatsappOrders = allWhatsappOrders.filter { orderMatchesWorkspace(workspaceType, it.direction) }
             val reconciliationItems = if (workspaceType == "prematch") {
                 calculator.reconcile(
@@ -1003,12 +1019,10 @@ class BookkeepingService(
                 "downstream_orders",
                 "upstream_orders",
                 "company_orders",
-                "prematch_settlement",
                 "prematch_profit",
                 "prematch_excel",
                 "rolling_upstream_orders",
                 "rolling_downstream_orders",
-                "rolling_water",
                 "rolling_group_orders",
                 "rolling_reconcile",
                 "rolling_profit",
@@ -1034,7 +1048,6 @@ class BookkeepingService(
                 "crown_wagers",
                 "rolling_upstream_orders",
                 "rolling_downstream_orders",
-                "rolling_water",
                 "rolling_group_orders",
                 "rolling_reconcile",
                 "rolling_profit",
@@ -1045,7 +1058,6 @@ class BookkeepingService(
                 "downstream_orders",
                 "upstream_orders",
                 "company_orders",
-                "prematch_settlement",
                 "prematch_profit",
                 "prematch_excel"
             )
@@ -1246,16 +1258,11 @@ class BookkeepingService(
             .filter {
                 it.isNotEmpty() &&
                     !it.matches(Regex("^(今日|今天).*(共|条).*$")) &&
-                    it.isLikelyWhatsappOrderBlock()
+                    BookkeepingWhatsappOrderPrecision.isLikelyOrderBlock(it)
             }
         if (blocks.size > 1) return blocks
-        return if (rawMessage.isLikelyWhatsappOrderBlock()) listOf(rawMessage) else emptyList()
+        return if (BookkeepingWhatsappOrderPrecision.isLikelyOrderBlock(rawMessage)) listOf(rawMessage) else emptyList()
     }
-
-    private fun String.isLikelyWhatsappOrderBlock(): Boolean =
-        contains("@") ||
-            contains("确认") ||
-            BookkeepingWhatsappAmountParser.containsAmount(this)
 
     private fun extractOrderOdds(value: String): BigDecimal? {
         val match = Regex("@\\s*([+-]?\\d+(?:\\.\\d+)?)").find(value) ?: return null

@@ -30,6 +30,11 @@ object UpdatePackageSafety {
         "open-blackcat-frontend.cmd",
         "start-blackcat-backend.ps1",
         "start-blackcat-backend.cmd",
+        "start-telegram-bridge.ps1",
+        "start-telegram-bridge.cmd",
+        "telegram-bridge/package.json",
+        "telegram-bridge/package-lock.json",
+        "telegram-bridge/server.mjs",
         "launch-odds-monitor.ps1",
         "launch-odds-monitor.cmd",
         "start-odds-backend.ps1",
@@ -49,7 +54,12 @@ object UpdatePackageSafety {
         "backups/",
         "updates/",
         "backend/logs/",
-        "frontend/logs/"
+        "frontend/logs/",
+        "telegram-bridge/data/",
+        "telegram-bridge/node_modules/",
+        "whatsapp-bridge/.wwebjs_auth/",
+        "whatsapp-bridge/.wwebjs_cache/",
+        "whatsapp-bridge/node_modules/"
     )
 
     private val protectedExactPaths = setOf(
@@ -169,6 +179,8 @@ object UpdateApplyScriptBuilder {
               Stop-Process -Id $backendPid -Force -ErrorAction SilentlyContinue
               Stop-MatchingProcesses '*auto-bookkeeping-backend*'
               Stop-MatchingProcesses '*serve-blackcat-frontend.ps1*'
+              Stop-MatchingProcesses '*start-telegram-bridge.ps1*'
+              Stop-MatchingProcesses '*telegram-bridge*server.mjs*'
               New-Item -ItemType Directory -Path ${'$'}backupRoot -Force | Out-Null
               Write-Status ${'$'}true 88 '备份旧文件'
               foreach (${'$'}relative in ${'$'}files) {
@@ -325,16 +337,19 @@ class GitHubUpdateService(
     }
 
     private fun releaseApiUrl(): String? {
+        System.getenv("AUTO_BOOKKEEPING_UPDATE_RELEASE_API_URL")?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         System.getenv("ODDS_MONITOR_UPDATE_RELEASE_API_URL")?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         updateConfig()?.get("releaseApiUrl")?.asText()?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
-        val repo = System.getenv("ODDS_MONITOR_GITHUB_REPO")?.trim()?.takeIf { it.isNotBlank() }
+        val repo = System.getenv("AUTO_BOOKKEEPING_GITHUB_REPO")?.trim()?.takeIf { it.isNotBlank() }
+            ?: System.getenv("ODDS_MONITOR_GITHUB_REPO")?.trim()?.takeIf { it.isNotBlank() }
             ?: updateConfig()?.get("githubRepo")?.asText()?.trim()?.takeIf { it.isNotBlank() }
             ?: OddsMonitorUpdateDefaults.GITHUB_REPO
         return GitHubReleaseApiUrlBuilder.latestReleaseApiUrl(repo)
     }
 
     private fun githubToken(): String? {
-        return System.getenv("ODDS_MONITOR_GITHUB_TOKEN")?.trim()?.takeIf { it.isNotBlank() }
+        return System.getenv("AUTO_BOOKKEEPING_GITHUB_TOKEN")?.trim()?.takeIf { it.isNotBlank() }
+            ?: System.getenv("ODDS_MONITOR_GITHUB_TOKEN")?.trim()?.takeIf { it.isNotBlank() }
             ?: System.getenv("GITHUB_TOKEN")?.trim()?.takeIf { it.isNotBlank() }
             ?: updateConfig()?.get("githubToken")?.asText()?.trim()?.takeIf { it.isNotBlank() }
     }

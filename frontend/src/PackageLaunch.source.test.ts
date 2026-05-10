@@ -26,9 +26,35 @@ describe('packaged BlackCat launcher', () => {
 
     expect(buildScript).toContain("$apiUrl = 'http://127.0.0.1:18001'")
     expect(buildScript).toContain("$wsUrl = 'ws://127.0.0.1:18001'")
+    expect(buildScript).toContain('$env:VERSION = $version')
+    expect(buildScript).toContain('$env:GIT_TAG = "v$version"')
+    expect(buildScript).toContain("$env:GITHUB_REPO_URL = 'https://github.com/Austin-C1/auto-bookkeeping'")
     expect(buildScript).not.toContain("127.0.0.1:8000")
     expect(updatePackageScript).toContain('$frontendBuildScript')
     expect(updatePackageScript).toContain('& $frontendBuildScript')
+  })
+
+  it('keeps local accounts, group settings, and login sessions out of update packages', () => {
+    const updatePackageScript = readRootFile('build-blackcat-update-package.ps1')
+
+    expect(updatePackageScript).toContain("'local login'")
+    expect(updatePackageScript).toContain("'crown accounts'")
+    expect(updatePackageScript).toContain("'upstream and downstream groups'")
+    expect(updatePackageScript).toContain("'WhatsApp session'")
+    expect(updatePackageScript).toContain("'Telegram session'")
+    expect(updatePackageScript).not.toContain('config\\local.env.ps1')
+    expect(updatePackageScript).not.toContain('config\\update.json')
+    expect(updatePackageScript).not.toContain('data\\telegram-session.txt')
+    expect(updatePackageScript).not.toContain('.wwebjs_auth')
+    expect(updatePackageScript).not.toContain('.wwebjs_cache')
+  })
+
+  it('builds the blank installer in a staging directory instead of overwriting an installed copy', () => {
+    const emptyPackageScript = readRootFile('build-blackcat-empty-package.ps1')
+
+    expect(emptyPackageScript).toContain("$stagingRoot = Join-Path $desktopDir '_auto-bookkeeping-package-build'")
+    expect(emptyPackageScript).toContain('$packageDir = Join-Path $stagingRoot $packageDirName')
+    expect(emptyPackageScript).not.toContain('$packageDir = Join-Path $desktopDir $packageDirName')
   })
 
   it('enables the packaged default admin with the property prefix read by AuthService', () => {

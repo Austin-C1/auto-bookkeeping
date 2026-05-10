@@ -90,7 +90,6 @@ class BookkeepingExcelReportWriter(
                 ) { order, _ ->
                     calculateDownstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
                 }
-                "prematch_settlement" -> workbook.addSettlementSheet("赛前结算表", businessDate, summary, headerStyle)
                 "prematch_profit" -> workbook.addPrematchCompanyProfitWorkbookSheets(
                     businessDate,
                     summary,
@@ -128,9 +127,15 @@ class BookkeepingExcelReportWriter(
                 ) { order, _ ->
                     calculateDownstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
                 }
-                "rolling_water" -> workbook.addSettlementSheet("盈亏水表格", businessDate, summary, headerStyle)
                 "rolling_reconcile" -> workbook.addReconciliationSheet("滚球对账表", reconciliationResults, headerStyle)
-                "rolling_profit" -> workbook.addRollingProfitSheet("滚球盈亏表", businessDate, summary, headerStyle)
+                "rolling_profit" -> workbook.addRollingCompanyProfitWorkbookSheets(
+                    businessDate,
+                    wagers,
+                    whatsappOrders,
+                    whatsappGroups,
+                    headerStyle,
+                    scoreLookup
+                )
                 "prematch_excel" -> workbook.addPrematchWorkbookSheets(
                     businessDate,
                     summary,
@@ -202,15 +207,25 @@ class BookkeepingExcelReportWriter(
         ) { order, _ ->
             calculateDownstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
         }
-        addSettlementSheet("赛前结算表", businessDate, summary, headerStyle)
         addCompanyProfitSheet(
             "公司盈亏表",
             businessDate,
-            summary,
             whatsappOrders.filter { it.direction in setOf("upstream", "downstream", "company_follow") },
             whatsappGroups,
             headerStyle,
-            scoreLookup
+            scoreLookup,
+            upstreamDirections = setOf("upstream"),
+            downstreamDirections = setOf("downstream")
+        )
+        addWaterProfitSheet(
+            "盈亏水表格",
+            businessDate,
+            whatsappOrders,
+            whatsappGroups,
+            headerStyle,
+            scoreLookup,
+            upstreamDirections = setOf("upstream"),
+            downstreamDirections = setOf("downstream")
         )
         addReconciliationSheet("异常订单", reconciliationResults.filter { it.issueType != "matched" }, headerStyle)
     }
@@ -236,7 +251,14 @@ class BookkeepingExcelReportWriter(
             calculateDownstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
         }
         addReconciliationSheet("滚球对账表", reconciliationResults, headerStyle)
-        addRollingProfitSheet("滚球盈亏表", businessDate, summary, headerStyle)
+        addRollingCompanyProfitWorkbookSheets(
+            businessDate,
+            wagers,
+            whatsappOrders,
+            whatsappGroups,
+            headerStyle,
+            scoreLookup
+        )
         addReconciliationSheet("滚球异常表", reconciliationResults.filter { it.issueType != "matched" }, headerStyle)
     }
 
@@ -251,13 +273,52 @@ class BookkeepingExcelReportWriter(
         addCompanyProfitSheet(
             "公司盈亏表",
             businessDate,
-            summary,
+            whatsappOrders,
+            whatsappGroups,
+            headerStyle,
+            scoreLookup,
+            upstreamDirections = setOf("upstream"),
+            downstreamDirections = setOf("downstream")
+        )
+        addWaterProfitSheet(
+            "盈亏水表格",
+            businessDate,
+            whatsappOrders,
+            whatsappGroups,
+            headerStyle,
+            scoreLookup,
+            upstreamDirections = setOf("upstream"),
+            downstreamDirections = setOf("downstream")
+        )
+    }
+
+    private fun XSSFWorkbook.addRollingCompanyProfitWorkbookSheets(
+        businessDate: String,
+        wagers: List<BookkeepingCrownWagerDto>,
+        whatsappOrders: List<BookkeepingWhatsappOrderDto>,
+        whatsappGroups: List<BookkeepingWhatsappGroupDto>,
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup
+    ) {
+        addRollingCompanyProfitSheet(
+            "滚球公司盈亏表",
+            businessDate,
+            wagers,
             whatsappOrders,
             whatsappGroups,
             headerStyle,
             scoreLookup
         )
-        addSettlementSheet("盈亏水表格", businessDate, summary, headerStyle)
+        addWaterProfitSheet(
+            "盈亏水表格",
+            businessDate,
+            whatsappOrders,
+            whatsappGroups,
+            headerStyle,
+            scoreLookup,
+            upstreamDirections = setOf("rolling_upstream"),
+            downstreamDirections = setOf("rolling", "rolling_downstream")
+        )
     }
 
     private fun XSSFWorkbook.addDailyWorkbookSheets(
@@ -290,11 +351,12 @@ class BookkeepingExcelReportWriter(
         addCompanyProfitSheet(
             "公司盈亏表",
             businessDate,
-            summary,
             whatsappOrders.filter { it.direction in setOf("upstream", "downstream", "company_follow") },
             emptyList(),
             headerStyle,
-            scoreLookup
+            scoreLookup,
+            upstreamDirections = setOf("upstream"),
+            downstreamDirections = setOf("downstream")
         )
     }
 
@@ -485,71 +547,269 @@ class BookkeepingExcelReportWriter(
     private fun XSSFWorkbook.addCompanyProfitSheet(
         name: String,
         businessDate: String,
-        summary: BookkeepingDailySummaryDto,
         orders: List<BookkeepingWhatsappOrderDto>,
         groups: List<BookkeepingWhatsappGroupDto>,
         headerStyle: CellStyle,
-        scoreLookup: BookkeepingTitan007ScoreLookup
+        scoreLookup: BookkeepingTitan007ScoreLookup,
+        upstreamDirections: Set<String>,
+        downstreamDirections: Set<String>
     ) {
         val groupById = groups.mapNotNull { group -> group.id?.let { it to group } }.toMap()
-        val rows = orders.mapIndexed { index, order ->
-            val stake = order.amount ?: BigDecimal.ZERO
-            val odds = order.oddsValue ?: BigDecimal.ZERO
-            val actualScore = actualScoreText(order, scoreLookup)
-            val settlementResult = effectiveSettlementResult(order, actualScore)
-            val settlement = if (order.direction == "upstream") {
-                calculateUpstreamSettlement(stake, odds, settlementResult)
-            } else {
-                calculateDownstreamSettlement(stake, odds, settlementResult)
-            }
+        val waterTotal = waterProfitEntries(
+            orders,
+            groups,
+            scoreLookup,
+            upstreamDirections = upstreamDirections,
+            downstreamDirections = downstreamDirections
+        ).sumOfMoney { it.waterProfit }
+        val rows = companyExposureEntries(
+            orders,
+            groupById,
+            scoreLookup,
+            upstreamDirections = upstreamDirections,
+            downstreamDirections = downstreamDirections
+        ).mapIndexed { index, entry ->
             listOf(
-                if (index == 0) order.businessDate else "",
+                if (index == 0) businessDate else "",
                 index + 1,
-                order.leagueName,
-                betTypeText(order.marketText),
-                order.matchName,
-                betMarketAndOdds(order.marketText, order.oddsValue),
-                bettingScoreText(order.rawMessage),
-                actualScore,
-                amountWithCurrency(order.amount, currencyForOrder(order, groupById)),
-                settlementResult.orEmpty(),
-                settlement,
-                orderSourceText(order, groupById)
+                entry.leagueName,
+                betTypeText(entry.marketText),
+                entry.matchName,
+                betMarketAndOdds(entry.marketText, entry.odds),
+                entry.bettingScore,
+                entry.actualScore,
+                amountWithCurrency(entry.companyStake, entry.currency),
+                entry.settlementResult,
+                entry.companyProfit,
+                "公司投注额度"
             )
-        } + listOf(
-            listOf("", "", "", "", "", "", "", "", "", "盈亏水金额", summary.waterLossAmount, ""),
-            listOf(businessDate, "", "", "", "", "", "", "", "", "日盈亏", summary.companyNetProfit, "")
+        }
+        val companyProfitTotal = rows.sumOfMoney { row -> (row[10] as? BigDecimal) ?: BigDecimal.ZERO }
+        val rowsWithTotal = rows + listOf(
+            listOf("", "", "", "", "", "", "", "", "", "盈亏水金额", waterTotal, ""),
+            listOf(businessDate, "", "", "", "", "", "", "", "", "日盈亏", companyProfitTotal.add(waterTotal), "")
         )
 
         addSheet(
             name,
             accountBillHeaders() + "订单来源",
-            rows,
+            rowsWithTotal,
             headerStyle
         )
     }
 
-    private fun XSSFWorkbook.addSettlementSheet(
+    private fun XSSFWorkbook.addRollingCompanyProfitSheet(
         name: String,
         businessDate: String,
-        summary: BookkeepingDailySummaryDto,
-        headerStyle: CellStyle
+        wagers: List<BookkeepingCrownWagerDto>,
+        whatsappOrders: List<BookkeepingWhatsappOrderDto>,
+        groups: List<BookkeepingWhatsappGroupDto>,
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup
     ) {
+        val groupById = groups.mapNotNull { group -> group.id?.let { it to group } }.toMap()
+        val waterTotal = waterProfitEntries(
+            whatsappOrders,
+            groups,
+            scoreLookup,
+            upstreamDirections = setOf("rolling_upstream"),
+            downstreamDirections = setOf("rolling", "rolling_downstream")
+        ).sumOfMoney { it.waterProfit }
+        val rows = rollingCompanyExposureEntries(wagers, whatsappOrders, groupById, scoreLookup)
+            .mapIndexed { index, entry ->
+                listOf(
+                    if (index == 0) businessDate else "",
+                    index + 1,
+                    entry.leagueName,
+                    betTypeText(entry.marketText),
+                    entry.matchName,
+                    betMarketAndOdds(entry.marketText, entry.odds),
+                    entry.bettingScore,
+                    entry.actualScore,
+                    amountWithCurrency(entry.companyStake, entry.currency),
+                    entry.settlementResult,
+                    entry.companyProfit,
+                    "公司投注额度"
+                )
+            }
+        val companyProfitTotal = rows.sumOfMoney { row -> (row[10] as? BigDecimal) ?: BigDecimal.ZERO }
+        val rowsWithTotal = rows + listOf(
+            listOf("", "", "", "", "", "", "", "", "", "盈亏水金额", waterTotal, ""),
+            listOf(businessDate, "", "", "", "", "", "", "", "", "日盈亏", companyProfitTotal.add(waterTotal), "")
+        )
+
         addSheet(
             name,
-            listOf("日期", "上游结算现金流", "下游结算现金流", "公司跟单额", "盈亏水金额", "公司总盈利"),
-            listOf(
-                listOf(
-                    businessDate,
-                    summary.upstreamCashflow,
-                    summary.downstreamCashflow,
-                    summary.companyFollowAmount,
-                    summary.waterLossAmount,
-                    summary.companyNetProfit
-                )
-            ),
+            accountBillHeaders() + "订单来源",
+            rowsWithTotal,
             headerStyle
         )
+    }
+
+    private fun companyExposureEntries(
+        orders: List<BookkeepingWhatsappOrderDto>,
+        groups: Map<Long, BookkeepingWhatsappGroupDto>,
+        scoreLookup: BookkeepingTitan007ScoreLookup,
+        upstreamDirections: Set<String>,
+        downstreamDirections: Set<String>
+    ): List<CompanyExposureEntry> {
+        val normalizedUpstreamDirections = upstreamDirections.map { it.trim().lowercase() }.toSet()
+        val normalizedDownstreamDirections = downstreamDirections.map { it.trim().lowercase() }.toSet()
+        val upstreamByKey = orders
+            .filter { it.direction.trim().lowercase() in normalizedUpstreamDirections }
+            .mapNotNull { order -> waterOrderKey(order)?.let { key -> key to order } }
+            .groupBy({ it.first }, { it.second })
+        val downstreamByKey = orders
+            .filter { it.direction.trim().lowercase() in normalizedDownstreamDirections }
+            .mapNotNull { order -> waterOrderKey(order)?.let { key -> key to order } }
+            .groupBy({ it.first }, { it.second })
+        return upstreamByKey.mapNotNull { (key, upstreamOrders) ->
+            val upstream = upstreamOrders.firstOrNull() ?: return@mapNotNull null
+            val downstreamOrders = downstreamByKey[key].orEmpty()
+            val upstreamStake = upstreamOrders.sumOfMoney { it.amount ?: BigDecimal.ZERO }
+            val downstreamStake = downstreamOrders.sumOfMoney { it.amount ?: BigDecimal.ZERO }
+            val companyStake = downstreamStake.subtract(upstreamStake)
+            if (companyStake.compareTo(BigDecimal.ZERO) == 0) return@mapNotNull null
+            val actualScore = actualScoreText(upstream, scoreLookup)
+            val settlementResult = effectiveSettlementResult(upstream, actualScore).orEmpty()
+            val odds = upstream.oddsValue ?: BigDecimal.ZERO
+            CompanyExposureEntry(
+                leagueName = upstream.leagueName,
+                matchName = upstream.matchName,
+                marketText = upstream.marketText,
+                odds = odds,
+                bettingScore = bettingScoreText(upstream.rawMessage),
+                actualScore = actualScore,
+                companyStake = companyStake,
+                currency = commonCurrencySuffix((upstreamOrders + downstreamOrders).map { currencyForOrder(it, groups) }),
+                settlementResult = settlementResult,
+                companyProfit = calculateUpstreamSettlement(companyStake, odds, settlementResult)
+            )
+        }
+    }
+
+    private fun rollingCompanyExposureEntries(
+        wagers: List<BookkeepingCrownWagerDto>,
+        orders: List<BookkeepingWhatsappOrderDto>,
+        groups: Map<Long, BookkeepingWhatsappGroupDto>,
+        scoreLookup: BookkeepingTitan007ScoreLookup
+    ): List<CompanyExposureEntry> {
+        val wagerByKey = wagers
+            .mapNotNull { wager -> crownExposureKey(wager)?.let { key -> key to wager } }
+            .groupBy({ it.first }, { it.second })
+        val rollingOrdersByKey = orders
+            .filter { it.direction in setOf("rolling", "rolling_downstream", "rolling_company") }
+            .mapNotNull { order -> waterMarketKey(order)?.let { key -> key to order } }
+            .groupBy({ it.first }, { it.second })
+        return wagerByKey.mapNotNull { (key, keyWagers) ->
+            val wager = keyWagers.firstOrNull() ?: return@mapNotNull null
+            val groupOrders = rollingOrdersByKey[key].orEmpty()
+            val crownStake = keyWagers.sumOfMoney { it.stakeAmount }
+            val rollingStake = groupOrders.sumOfMoney { it.amount ?: BigDecimal.ZERO }
+            val companyStake = rollingStake.subtract(crownStake)
+            if (companyStake.compareTo(BigDecimal.ZERO) == 0) return@mapNotNull null
+            val settlementResult = wagerOutcomeText(wager)
+            val odds = wager.oddsValue ?: BigDecimal.ZERO
+            CompanyExposureEntry(
+                leagueName = wager.leagueName,
+                matchName = crownMatchName(wager),
+                marketText = wager.selectionName ?: crownMarketAndOdds(wager),
+                odds = odds,
+                bettingScore = groupOrders.firstOrNull()?.rawMessage?.let { bettingScoreText(it) }.orEmpty(),
+                actualScore = actualScoreText(wager, scoreLookup),
+                companyStake = companyStake,
+                currency = commonCurrencySuffix(groupOrders.map { currencyForOrder(it, groups) } + keyWagers.map { it.currency }),
+                settlementResult = settlementResult,
+                companyProfit = calculateUpstreamSettlement(companyStake, odds, settlementResult)
+            )
+        }
+    }
+
+    private fun XSSFWorkbook.addWaterProfitSheet(
+        name: String,
+        businessDate: String,
+        orders: List<BookkeepingWhatsappOrderDto>,
+        groups: List<BookkeepingWhatsappGroupDto>,
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup,
+        upstreamDirections: Set<String>,
+        downstreamDirections: Set<String>
+    ) {
+        val entries = waterProfitEntries(orders, groups, scoreLookup, upstreamDirections, downstreamDirections)
+        val rows = entries.mapIndexed { index, entry ->
+            listOf(
+                if (index == 0) businessDate else "",
+                index + 1,
+                entry.leagueName,
+                entry.matchName,
+                entry.upstreamMarketAndOdds,
+                entry.downstreamMarketAndOdds,
+                amountWithCurrency(entry.downstreamStake, entry.currency),
+                entry.waterProfit,
+                entry.groupName
+            )
+        }
+        val totalWaterProfit = entries.sumOfMoney { it.waterProfit }
+        val rowsWithTotal = if (rows.isEmpty()) {
+            rows
+        } else {
+            rows + listOf(listOf<Any?>("", "", "", "", "", "", "总盈亏水", totalWaterProfit, ""))
+        }
+        addSheet(
+            name,
+            waterProfitHeaders(),
+            rowsWithTotal,
+            headerStyle
+        )
+    }
+
+    private fun waterProfitEntries(
+        orders: List<BookkeepingWhatsappOrderDto>,
+        groups: List<BookkeepingWhatsappGroupDto>,
+        scoreLookup: BookkeepingTitan007ScoreLookup,
+        upstreamDirections: Set<String>,
+        downstreamDirections: Set<String>
+    ): List<WaterProfitEntry> {
+        val normalizedUpstreamDirections = upstreamDirections.map { it.trim().lowercase() }.toSet()
+        val normalizedDownstreamDirections = downstreamDirections.map { it.trim().lowercase() }.toSet()
+        val groupById = groups.mapNotNull { group -> group.id?.let { it to group } }.toMap()
+        val upstreamByKey = orders
+            .filter { it.direction.trim().lowercase() in normalizedUpstreamDirections }
+            .mapNotNull { order -> waterOrderKey(order)?.let { key -> key to order } }
+            .groupBy({ it.first }, { it.second })
+        return orders
+            .filter { it.direction.trim().lowercase() in normalizedDownstreamDirections }
+            .mapNotNull { downstream ->
+                val downstreamKey = waterOrderKey(downstream) ?: return@mapNotNull null
+                val upstream = upstreamByKey[downstreamKey]?.firstOrNull() ?: return@mapNotNull null
+                val downstreamActualScore = actualScoreText(downstream, scoreLookup)
+                val upstreamActualScore = actualScoreText(upstream, scoreLookup)
+                val actualScore = upstreamActualScore.ifBlank { downstreamActualScore }
+                val settlementOutcome = (
+                    effectiveSettlementResult(upstream, actualScore)
+                        ?: effectiveSettlementResult(downstream, actualScore)
+                    ).toSettlementOutcome()
+                val winFactor = when (settlementOutcome) {
+                    SettlementOutcome.WIN -> BigDecimal.ONE
+                    SettlementOutcome.WIN_HALF -> HALF
+                    else -> return@mapNotNull null
+                }
+                val upstreamOdds = upstream.oddsValue ?: BigDecimal.ZERO
+                val downstreamOdds = downstream.oddsValue ?: BigDecimal.ZERO
+                val oddsDiff = upstreamOdds.subtract(downstreamOdds)
+                if (oddsDiff.compareTo(BigDecimal.ZERO) == 0) return@mapNotNull null
+                val downstreamStake = downstream.amount ?: BigDecimal.ZERO
+                WaterProfitEntry(
+                    leagueName = downstream.leagueName,
+                    matchName = downstream.matchName,
+                    upstreamMarketAndOdds = betMarketAndOdds(upstream.marketText, upstream.oddsValue),
+                    downstreamMarketAndOdds = betMarketAndOdds(downstream.marketText, downstream.oddsValue),
+                    downstreamStake = downstreamStake,
+                    currency = currencyForOrder(downstream, groupById),
+                    waterProfit = oddsDiff.multiply(downstreamStake).multiply(winFactor),
+                    groupName = groupNameForOrder(downstream, groupById)
+                )
+            }
     }
 
     private fun XSSFWorkbook.addProfitSheet(
@@ -702,6 +962,9 @@ class BookkeepingExcelReportWriter(
     private fun accountBillHeaders(): List<String> =
         listOf("日期", "序号", "联赛类型", "投注类型", "比赛队伍", "投注盘口及赔率", "投注时比分", "实际比分", "投注额度", "赛果", "盈亏")
 
+    private fun waterProfitHeaders(): List<String> =
+        listOf("日期", "序号", "联赛类型", "比赛队伍", "原投注盘口及赔率", "实际盘口及赔率", "下游投注", "盈亏水", "群名")
+
     private fun accountBillRowsWithTotal(
         rows: List<List<Any?>>,
         totalStakeText: String,
@@ -717,6 +980,8 @@ class BookkeepingExcelReportWriter(
         "联赛类型" -> 25
         "比赛队伍" -> 35
         "投注盘口及赔率" -> 35
+        "原投注盘口及赔率" -> 35
+        "实际盘口及赔率" -> 35
         else -> 20
     }
 
@@ -1011,6 +1276,55 @@ class BookkeepingExcelReportWriter(
         return listOf(direction, sourceGroup).filter { !it.isNullOrBlank() }.joinToString(" - ")
     }
 
+    private fun groupNameForOrder(
+        order: BookkeepingWhatsappOrderDto,
+        groups: Map<Long, BookkeepingWhatsappGroupDto>
+    ): String =
+        order.groupId
+            ?.let { groups[it] }
+            ?.let { group ->
+                group.displayName.takeIf { it.isNotBlank() }
+                    ?: group.chatName.takeIf { it.isNotBlank() }
+                    ?: group.groupKey
+            }
+            .orEmpty()
+
+    private fun waterOrderKey(order: BookkeepingWhatsappOrderDto): String? {
+        val matchName = normaliseWaterMatchName(order.matchName)
+        val marketText = normaliseWaterMarket(order.marketText)
+        if (matchName.isBlank() || marketText.isBlank()) return null
+        val confirmation = BookkeepingWhatsappOrderPrecision.confirmationToken(order.rawMessage)
+        return listOf(matchName, marketText, confirmation)
+            .filter { it.isNotBlank() }
+            .joinToString("|")
+    }
+
+    private fun waterMarketKey(order: BookkeepingWhatsappOrderDto): String? {
+        val matchName = normaliseWaterMatchName(order.matchName)
+        val marketText = normaliseWaterMarket(order.marketText)
+        if (matchName.isBlank() || marketText.isBlank()) return null
+        return "$matchName|$marketText"
+    }
+
+    private fun crownExposureKey(wager: BookkeepingCrownWagerDto): String? {
+        val matchName = normaliseWaterMatchName(crownMatchName(wager))
+        val marketText = normaliseWaterMarket(wager.selectionName ?: crownMarketAndOdds(wager))
+        if (matchName.isBlank() || marketText.isBlank()) return null
+        return "$matchName|$marketText"
+    }
+
+    private fun normaliseWaterMatchName(value: String?): String =
+        MATCH_NAME_SPLIT_REGEX.replace(value.orEmpty().trim().lowercase(), "v")
+            .replace(WATER_MATCH_CLEANUP_REGEX, "")
+
+    private fun normaliseWaterMarket(value: String?): String =
+        marketWithoutOddsSuffix(value.orEmpty()).lowercase()
+            .replace(WATER_MARKET_CLEANUP_REGEX, "")
+            .replace("+", "")
+
+    private fun <T> Iterable<T>.sumOfMoney(selector: (T) -> BigDecimal): BigDecimal =
+        fold(BigDecimal.ZERO) { total, item -> total.add(selector(item)) }
+
     private fun BookkeepingWhatsappOrderDto.isRollingDirection(): Boolean =
         direction in setOf("rolling", "rolling_upstream", "rolling_downstream", "rolling_company")
 
@@ -1097,6 +1411,30 @@ class BookkeepingExcelReportWriter(
         val away: String
     )
 
+    private data class CompanyExposureEntry(
+        val leagueName: String?,
+        val matchName: String?,
+        val marketText: String?,
+        val odds: BigDecimal?,
+        val bettingScore: String,
+        val actualScore: String,
+        val companyStake: BigDecimal,
+        val currency: String?,
+        val settlementResult: String,
+        val companyProfit: BigDecimal
+    )
+
+    private data class WaterProfitEntry(
+        val leagueName: String?,
+        val matchName: String?,
+        val upstreamMarketAndOdds: String,
+        val downstreamMarketAndOdds: String,
+        val downstreamStake: BigDecimal,
+        val currency: String?,
+        val waterProfit: BigDecimal,
+        val groupName: String
+    )
+
     private companion object {
         const val MAX_EXCEL_SHEET_NAME_LENGTH: Int = 31
         const val EXCEL_COLUMN_WIDTH_UNIT: Int = 256
@@ -1109,6 +1447,8 @@ class BookkeepingExcelReportWriter(
         val ODDS_SUFFIX_REGEX: Regex = Regex("""\s*@\s*[+-]?\d+(?:\.\d+)?\s*$""")
         val MATCH_NAME_SPLIT_REGEX: Regex = Regex("""\s+(?:vs?\.?|对)\s+""", RegexOption.IGNORE_CASE)
         val TEAM_TEXT_CLEANUP_REGEX: Regex = Regex("""[\s·.\-_/（）()\[\]【】]+""")
+        val WATER_MATCH_CLEANUP_REGEX: Regex = Regex("""[\s·.\-_/（）()\[\]【】]+""")
+        val WATER_MARKET_CLEANUP_REGEX: Regex = Regex("""[\s（）()\[\]【】]+""")
         val HOME_TOKEN_REGEX: Regex = Regex("""(^|\s)(主|主队|home)($|\s)""", RegexOption.IGNORE_CASE)
         val AWAY_TOKEN_REGEX: Regex = Regex("""(^|\s)(客|客队|away)($|\s)""", RegexOption.IGNORE_CASE)
     }

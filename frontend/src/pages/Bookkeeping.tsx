@@ -27,6 +27,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons'
 import { apiService } from '../services/api'
+import SystemUpdate from './SystemUpdate'
 
 const { Title, Text } = Typography
 
@@ -50,12 +51,10 @@ type ReportType =
   | 'downstream_orders'
   | 'upstream_orders'
   | 'company_orders'
-  | 'prematch_settlement'
   | 'prematch_profit'
   | 'prematch_excel'
   | 'rolling_upstream_orders'
   | 'rolling_downstream_orders'
-  | 'rolling_water'
   | 'rolling_group_orders'
   | 'rolling_reconcile'
   | 'rolling_profit'
@@ -449,7 +448,6 @@ const roleMatchesWorkspace = (role: GroupRole, workspaceType: WorkspaceType) => 
 const preMatchReportActions: ReportAction[] = [
   { workspaceType: 'prematch', reportType: 'upstream_orders', label: '赛前上游各群表格' },
   { workspaceType: 'prematch', reportType: 'downstream_orders', label: '赛前下游各群表格' },
-  { workspaceType: 'prematch', reportType: 'prematch_settlement', label: '盈亏水表格' },
   { workspaceType: 'prematch', reportType: 'prematch_profit', label: '公司盈亏表格' },
   { workspaceType: 'prematch', reportType: 'prematch_excel', label: '一键生成' },
 ]
@@ -457,7 +455,6 @@ const preMatchReportActions: ReportAction[] = [
 const rollingReportActions: ReportAction[] = [
   { workspaceType: 'rolling', reportType: 'rolling_upstream_orders', label: '滚球上游各群表格' },
   { workspaceType: 'rolling', reportType: 'rolling_downstream_orders', label: '滚球下游各群表格' },
-  { workspaceType: 'rolling', reportType: 'rolling_water', label: '盈亏水表格' },
   { workspaceType: 'rolling', reportType: 'rolling_profit', label: '公司盈亏表格' },
   { workspaceType: 'rolling', reportType: 'rolling_excel', label: '一键生成' },
 ]
@@ -466,12 +463,10 @@ const reportTypeLabels: Record<string, string> = {
   upstream_orders: '赛前上游各群表格',
   downstream_orders: '赛前下游各群表格',
   company_orders: '公司跟单表',
-  prematch_settlement: '盈亏水表格',
   prematch_profit: '公司盈亏表格',
   prematch_excel: '全部文件',
   rolling_upstream_orders: '滚球上游各群表格',
   rolling_downstream_orders: '滚球下游各群表格',
-  rolling_water: '盈亏水表格',
   rolling_group_orders: '滚球群账单',
   crown_wagers: '皇冠注单表',
   rolling_reconcile: '滚球对账表',
@@ -485,6 +480,7 @@ const getPageKey = (pathname: string) => {
   const clean = pathname.replace(/\/$/, '')
   if (clean.startsWith('/bookkeeping/prematch/reconciliation')) return 'prematchReconciliation'
   if (clean.startsWith('/bookkeeping/rolling/reconciliation')) return 'rollingReconciliation'
+  if (clean.startsWith('/bookkeeping/system/update')) return 'systemUpdate'
   if (clean.startsWith('/bookkeeping/rolling')) return 'rolling'
   if (clean.startsWith('/bookkeeping/crown/accounts')) return 'crownAccounts'
   if (clean.startsWith('/bookkeeping/whatsapp/groups')) return 'whatsappGroups'
@@ -1771,6 +1767,7 @@ const Bookkeeping = () => {
   if (pageKey === 'prematchReconciliation') return renderPrematchReconciliationPage()
   if (pageKey === 'rollingReconciliation') return renderRollingReconciliationPage()
   if (pageKey === 'excel') return renderExcelPage()
+  if (pageKey === 'systemUpdate') return <SystemUpdate />
   return renderDashboardPage()
 }
 

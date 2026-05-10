@@ -125,7 +125,7 @@ $manifest = [ordered]@{
     app = 'auto-bookkeeping'
     version = $version
     generatedAt = (Get-Date).ToUniversalTime().ToString('o')
-    preserves = @('.env', 'config', 'data', 'logs', 'backups', 'updates', 'TG settings', 'accounts')
+    preserves = @('.env', 'config', 'data', 'logs', 'backups', 'updates', 'local login', 'crown accounts', 'upstream and downstream groups', 'WhatsApp session', 'Telegram session')
     files = $files
 } | ConvertTo-Json -Depth 5
 

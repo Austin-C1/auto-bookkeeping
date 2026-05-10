@@ -4,6 +4,7 @@ import { Layout as AntLayout, Button, Drawer, Menu, Modal, Tag } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   CalculatorOutlined,
+  CloudUploadOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   FileExcelOutlined,
@@ -33,6 +34,7 @@ const menuItems: MenuProps['items'] = [
   { key: '/bookkeeping/prematch/reconciliation', icon: <ReconciliationOutlined />, label: '赛前对账中心' },
   { key: '/bookkeeping/rolling/reconciliation', icon: <ReconciliationOutlined />, label: '滚球对账中心' },
   { key: '/bookkeeping/excel', icon: <FileExcelOutlined />, label: '报表中心' },
+  { key: '/bookkeeping/system/update', icon: <CloudUploadOutlined />, label: '系统更新' },
   { type: 'divider' },
   { key: 'logout', icon: <LogoutOutlined />, label: '退出登录' },
 ]
@@ -40,6 +42,7 @@ const menuItems: MenuProps['items'] = [
 const pageKeys = [
   '/bookkeeping/rolling/reconciliation',
   '/bookkeeping/prematch/reconciliation',
+  '/bookkeeping/system/update',
   '/bookkeeping/crown/accounts',
   '/bookkeeping/whatsapp/groups',
   '/bookkeeping/telegram/groups',

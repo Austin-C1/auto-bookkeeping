@@ -128,15 +128,16 @@ $version = Get-VersionFromBuildFiles
 $packageDatabasePassword = New-RandomHex -Length 32
 $packageSlug = "auto-bookkeeping-empty-v$version"
 $packageDirName = "AutoBookkeeping-Blank-v$version"
-$packageDir = Join-Path $desktopDir $packageDirName
+$stagingRoot = Join-Path $desktopDir '_auto-bookkeeping-package-build'
+$packageDir = Join-Path $stagingRoot $packageDirName
 $zipPath = Join-Path $desktopDir "$packageDirName.zip"
 $jarPath = Join-Path $backendDir "build\libs\auto-bookkeeping-backend-$version.jar"
 $packageContainerName = "$packageSlug-mysql"
 $packageVolumeName = "$packageSlug-mysql-data"
 $packageAdminResetKey = New-RandomHex -Length 32
 
-if (Test-Path $packageDir) {
-    Get-ChildItem -LiteralPath $packageDir -Force | Remove-Item -Recurse -Force
+if (Test-Path $stagingRoot) {
+    Remove-Item -LiteralPath $stagingRoot -Recurse -Force
 }
 if (Test-Path $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
