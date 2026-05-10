@@ -60,7 +60,6 @@ data class BookkeepingDailySummary(
     val todayProfit: BigDecimal,
     val upstreamTotalStake: BigDecimal = BigDecimal.ZERO,
     val downstreamTotalStake: BigDecimal = BigDecimal.ZERO,
-    val downstreamRebateAmount: BigDecimal = BigDecimal.ZERO,
     val upstreamCashflow: BigDecimal = BigDecimal.ZERO,
     val downstreamCashflow: BigDecimal = BigDecimal.ZERO,
     val waterLossAmount: BigDecimal = BigDecimal.ZERO,
@@ -96,7 +95,8 @@ class BookkeepingCalculator {
         val effectiveWagers = wagers.filter { it.isEffective() }
         val settledWagers = effectiveWagers.filter { it.isSettled() }
         val unsettledWagers = effectiveWagers.filterNot { it.isSettled() }
-        val effectiveWhatsapp = whatsappOrders.filter { it.isValidOrder() }
+        val prematchOrders = whatsappOrders.filter { it.isPrematchDirection() }
+        val effectiveWhatsapp = prematchOrders.filter { it.isValidOrder() }
         val upstreamTotal = effectiveWhatsapp
             .filter { it.direction.equals("upstream", ignoreCase = true) }
             .sumMoney { it.amount ?: BigDecimal.ZERO }
@@ -109,21 +109,22 @@ class BookkeepingCalculator {
         val downstreamExposureTotal = downstreamTotal.add(companyFollowTotal)
         val companyFollowExposure = calculateCompanyFollowExposure(effectiveWhatsapp)
         val settledWinLoss = settledWagers.sumMoney { it.winLossAmount }
-        val groupById = whatsappGroups.mapNotNull { group -> group.id?.let { it to group } }.toMap()
-        val hasSettlementResult = effectiveWhatsapp.any { it.settlementResult.toSettlementOutcome() != null }
+        val settledWhatsapp = effectiveWhatsapp.filter { it.settlementResult.toSettlementOutcome() != null }
+        val unsettledWhatsapp = effectiveWhatsapp.filter { it.settlementResult.toSettlementOutcome() == null }
+        val hasSettlementResult = settledWhatsapp.isNotEmpty()
         val upstreamCashflow = if (hasSettlementResult) {
-            effectiveWhatsapp
+            settledWhatsapp
                 .filter { it.direction.equals("upstream", ignoreCase = true) }
                 .sumMoney { order ->
-                val stake = order.amount ?: BigDecimal.ZERO
-                val odds = order.oddsValue ?: BigDecimal.ZERO
-                calculateUpstreamCashflow(stake, odds, order.settlementResult)
-            }
+                    val stake = order.amount ?: BigDecimal.ZERO
+                    val odds = order.oddsValue ?: BigDecimal.ZERO
+                    calculateUpstreamCashflow(stake, odds, order.settlementResult)
+                }
         } else {
             BigDecimal.ZERO
         }
         val downstreamCashflow = if (hasSettlementResult) {
-            effectiveWhatsapp
+            settledWhatsapp
                 .filter {
                     it.direction.equals("downstream", ignoreCase = true) ||
                         it.direction.equals("company_follow", ignoreCase = true)
@@ -131,28 +132,21 @@ class BookkeepingCalculator {
                 .sumMoney { order ->
                     val stake = order.amount ?: BigDecimal.ZERO
                     val odds = order.oddsValue ?: BigDecimal.ZERO
-                    val rebatePoints = groupById[order.groupId]?.rebatePoints ?: BigDecimal.ZERO
-                    calculateDownstreamCashflow(stake, odds, rebatePoints, order.settlementResult)
+                    calculateDownstreamCashflow(stake, odds, order.settlementResult)
                 }
         } else {
             BigDecimal.ZERO
         }
-        val downstreamRebateAmount = if (hasSettlementResult) {
-            effectiveWhatsapp
-                .filter {
-                    it.direction.equals("downstream", ignoreCase = true) ||
-                        it.direction.equals("company_follow", ignoreCase = true)
-                }
-                .sumMoney { order ->
-                    val stake = order.amount ?: BigDecimal.ZERO
-                    val rebatePoints = groupById[order.groupId]?.rebatePoints ?: BigDecimal.ZERO
-                    calculateDownstreamRebateAmount(stake, rebatePoints, order.settlementResult)
-                }
-        } else {
-            BigDecimal.ZERO
-        }
+        val unsettledEstimate = unsettledWhatsapp
+            .filter { it.direction.equals("upstream", ignoreCase = true) }
+            .sumMoney { it.amount ?: BigDecimal.ZERO }
+            .subtract(
+                unsettledWhatsapp
+                    .filter { it.direction.equals("downstream", ignoreCase = true) }
+                    .sumMoney { it.amount ?: BigDecimal.ZERO }
+            )
         val grossProfit = if (hasSettlementResult) {
-            upstreamCashflow.add(downstreamCashflow)
+            upstreamCashflow.add(downstreamCashflow).add(unsettledEstimate)
         } else {
             upstreamTotal.subtract(downstreamTotal).add(settledWinLoss)
         }
@@ -172,18 +166,17 @@ class BookkeepingCalculator {
             crownTurnover = effectiveWagers.sumMoney { it.stakeAmount },
             settledWinLoss = settledWinLoss,
             unsettledAmount = unsettledWagers.sumMoney { it.stakeAmount },
-            whatsappOrderCount = whatsappOrders.size,
+            whatsappOrderCount = prematchOrders.size,
             upstreamValidCount = effectiveWhatsapp.count { it.direction.equals("upstream", ignoreCase = true) },
             downstreamValidCount = effectiveWhatsapp.count { it.direction.equals("downstream", ignoreCase = true) },
             companyFollowCount = companyFollowOrders.size,
             companyFollowAmount = companyFollowExposure,
-            suspiciousCount = whatsappOrders.count { it.parseStatus.equals("suspicious", ignoreCase = true) },
-            cancelledCount = whatsappOrders.count { it.parseStatus.isCancelled() },
+            suspiciousCount = prematchOrders.count { it.parseStatus.equals("suspicious", ignoreCase = true) },
+            cancelledCount = prematchOrders.count { it.parseStatus.isCancelled() },
             differenceCount = differences,
             todayProfit = companyNetProfit,
             upstreamTotalStake = upstreamTotal,
             downstreamTotalStake = downstreamExposureTotal,
-            downstreamRebateAmount = downstreamRebateAmount,
             upstreamCashflow = upstreamCashflow,
             downstreamCashflow = downstreamCashflow,
             waterLossAmount = waterLossAmount,
@@ -202,9 +195,10 @@ class BookkeepingCalculator {
         val settledWagers = effectiveWagers.filter { it.isSettled() }
         val unsettledWagers = effectiveWagers.filterNot { it.isSettled() }
         val settledWinLoss = settledWagers.sumMoney { it.winLossAmount }
-        val effectiveRollingOrders = whatsappOrders
-            .filter { it.isValidOrder() && it.direction.equals("rolling", ignoreCase = true) }
-        val hasRollingSettlementResult = effectiveRollingOrders.any { it.settlementResult.toSettlementOutcome() != null }
+        val rollingOrders = whatsappOrders.filter { it.isRollingDirection() }
+        val effectiveRollingOrders = rollingOrders.filter { it.isValidOrder() }
+        val settledRollingOrders = effectiveRollingOrders.filter { it.settlementResult.toSettlementOutcome() != null }
+        val hasRollingSettlementResult = settledRollingOrders.isNotEmpty()
         val rollingGroupStake = effectiveRollingOrders.sumMoney { it.amount ?: BigDecimal.ZERO }
         val rollingGroupSettlement = if (hasRollingSettlementResult) {
             effectiveRollingOrders.sumMoney { order ->
@@ -214,6 +208,41 @@ class BookkeepingCalculator {
                     settlementResult = order.settlementResult
                 )
             }
+        } else {
+            BigDecimal.ZERO
+        }
+        val rollingUpstreamCashflow = if (hasRollingSettlementResult) {
+            settledRollingOrders
+                .filter { it.direction.equals("rolling_upstream", ignoreCase = true) }
+                .sumMoney { order ->
+                    calculateUpstreamCashflow(
+                        stake = order.amount ?: BigDecimal.ZERO,
+                        odds = order.oddsValue ?: BigDecimal.ZERO,
+                        settlementResult = order.settlementResult
+                    )
+                }
+        } else {
+            BigDecimal.ZERO
+        }
+        val rollingDownstreamCashflow = if (hasRollingSettlementResult) {
+            settledRollingOrders
+                .filter {
+                    it.direction.equals("rolling", ignoreCase = true) ||
+                        it.direction.equals("rolling_downstream", ignoreCase = true) ||
+                        it.direction.equals("rolling_company", ignoreCase = true)
+                }
+                .sumMoney { order ->
+                    calculateDownstreamCashflow(
+                        stake = order.amount ?: BigDecimal.ZERO,
+                        odds = order.oddsValue ?: BigDecimal.ZERO,
+                        settlementResult = order.settlementResult
+                    )
+                }
+        } else {
+            BigDecimal.ZERO
+        }
+        val rollingWaterLossAmount = if (hasRollingSettlementResult) {
+            calculateWaterLossAmount(rollingUpstreamCashflow, rollingDownstreamCashflow)
         } else {
             BigDecimal.ZERO
         }
@@ -228,15 +257,21 @@ class BookkeepingCalculator {
             crownTurnover = effectiveWagers.sumMoney { it.stakeAmount },
             settledWinLoss = settledWinLoss,
             unsettledAmount = unsettledWagers.sumMoney { it.stakeAmount },
-            whatsappOrderCount = whatsappOrders.size,
-            upstreamValidCount = 0,
-            downstreamValidCount = 0,
-            companyFollowCount = 0,
+            whatsappOrderCount = rollingOrders.size,
+            upstreamValidCount = effectiveRollingOrders.count { it.direction.equals("rolling_upstream", ignoreCase = true) },
+            downstreamValidCount = effectiveRollingOrders.count {
+                it.direction.equals("rolling", ignoreCase = true) ||
+                    it.direction.equals("rolling_downstream", ignoreCase = true)
+            },
+            companyFollowCount = effectiveRollingOrders.count { it.direction.equals("rolling_company", ignoreCase = true) },
             companyFollowAmount = BigDecimal.ZERO,
-            suspiciousCount = whatsappOrders.count { it.parseStatus.equals("suspicious", ignoreCase = true) },
-            cancelledCount = whatsappOrders.count { it.parseStatus.isCancelled() },
+            suspiciousCount = rollingOrders.count { it.parseStatus.equals("suspicious", ignoreCase = true) },
+            cancelledCount = rollingOrders.count { it.parseStatus.isCancelled() },
             differenceCount = differences,
             todayProfit = rollingProfitDiff,
+            upstreamCashflow = rollingUpstreamCashflow,
+            downstreamCashflow = rollingDownstreamCashflow,
+            waterLossAmount = rollingWaterLossAmount,
             grossProfit = rollingProfitDiff,
             companyNetProfit = rollingProfitDiff,
             rollingGroupStake = rollingGroupStake,
@@ -261,18 +296,14 @@ class BookkeepingCalculator {
     fun calculateDownstreamCashflow(
         stake: BigDecimal,
         odds: BigDecimal,
-        rebatePoints: BigDecimal,
         settlementResult: String?
-    ): BigDecimal {
-        val settlementOdds = odds.subtract(rebatePoints.movePointLeft(2)).nonNegative()
-        return when (settlementResult.toSettlementOutcome()) {
-            SettlementOutcome.WIN -> stake.multiply(settlementOdds)
-            SettlementOutcome.WIN_HALF -> stake.multiply(settlementOdds).multiply(HALF)
-            SettlementOutcome.PUSH -> BigDecimal.ZERO
-            SettlementOutcome.LOSE_HALF -> stake.multiply(HALF).negate()
-            SettlementOutcome.LOSE -> stake.negate()
-            null -> BigDecimal.ZERO
-        }
+    ): BigDecimal = when (settlementResult.toSettlementOutcome()) {
+        SettlementOutcome.WIN -> stake.multiply(odds)
+        SettlementOutcome.WIN_HALF -> stake.multiply(odds).multiply(HALF)
+        SettlementOutcome.PUSH -> BigDecimal.ZERO
+        SettlementOutcome.LOSE_HALF -> stake.multiply(HALF).negate()
+        SettlementOutcome.LOSE -> stake.negate()
+        null -> BigDecimal.ZERO
     }
 
     fun calculateRollingGroupSettlement(
@@ -286,22 +317,6 @@ class BookkeepingCalculator {
         SettlementOutcome.LOSE_HALF -> stake.multiply(HALF).negate()
         SettlementOutcome.LOSE -> stake.negate()
         null -> BigDecimal.ZERO
-    }
-
-    fun calculateDownstreamRebateAmount(
-        stake: BigDecimal,
-        rebatePoints: BigDecimal,
-        settlementResult: String?
-    ): BigDecimal {
-        val pointValue = rebatePoints.movePointLeft(2).nonNegative()
-        return when (settlementResult.toSettlementOutcome()) {
-            SettlementOutcome.WIN -> stake.multiply(pointValue)
-            SettlementOutcome.WIN_HALF -> stake.multiply(pointValue).multiply(HALF)
-            SettlementOutcome.PUSH,
-            SettlementOutcome.LOSE_HALF,
-            SettlementOutcome.LOSE,
-            null -> BigDecimal.ZERO
-        }
     }
 
     fun calculateWaterLossAmount(
@@ -447,6 +462,14 @@ class BookkeepingCalculator {
         val text = parseStatus.trim().lowercase()
         return text in setOf("valid", "parsed", "effective", "confirmed", "有效订单")
     }
+
+    private fun BookkeepingCalculatorWhatsappOrder.isPrematchDirection(): Boolean =
+        direction.equals("upstream", ignoreCase = true) ||
+            direction.equals("downstream", ignoreCase = true) ||
+            direction.equals("company_follow", ignoreCase = true)
+
+    private fun BookkeepingCalculatorWhatsappOrder.isRollingDirection(): Boolean =
+        direction.lowercase() in setOf("rolling", "rolling_upstream", "rolling_downstream", "rolling_company")
 
     private fun String?.toSettlementOutcome(): SettlementOutcome? {
         val text = this?.trim()?.lowercase().orEmpty()

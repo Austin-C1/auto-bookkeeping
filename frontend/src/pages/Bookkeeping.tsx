@@ -19,6 +19,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import {
   CheckCircleOutlined,
+  CloudDownloadOutlined,
   CloudSyncOutlined,
   CloudUploadOutlined,
   DeleteOutlined,
@@ -32,16 +33,31 @@ const { Title, Text } = Typography
 type ApiResponse<T> = { code: number; data: T; msg: string }
 type Money = number | string
 type WorkspaceType = 'prematch' | 'rolling'
+type GroupRole =
+  | 'pending'
+  | 'upstream'
+  | 'downstream'
+  | 'company_follow'
+  | 'rolling'
+  | 'rolling_upstream'
+  | 'rolling_downstream'
+  | 'rolling_company'
+  | 'ignored'
+type OrderDirection = Exclude<GroupRole, 'pending' | 'ignored'>
 type ReportType =
   | 'daily'
   | 'crown_wagers'
-  | 'downstream_before_rebate'
-  | 'downstream_after_rebate'
+  | 'downstream_orders'
   | 'upstream_orders'
   | 'company_orders'
+  | 'prematch_settlement'
   | 'prematch_profit'
   | 'prematch_excel'
+  | 'rolling_upstream_orders'
+  | 'rolling_downstream_orders'
+  | 'rolling_water'
   | 'rolling_group_orders'
+  | 'rolling_reconcile'
   | 'rolling_profit'
   | 'rolling_excel'
 type ReportAction = { workspaceType: WorkspaceType; reportType: ReportType; label: string }
@@ -63,17 +79,19 @@ type CrownAccount = {
 type WhatsappGroup = {
   id?: number
   groupKey: string
+  sourceType?: 'whatsapp' | 'telegram' | string
   sourceChatId?: string
   displayName: string
   chatName: string
-  role: 'pending' | 'upstream' | 'downstream' | 'company_follow' | 'rolling' | 'ignored'
+  role: GroupRole
   currency: 'USDT' | 'RMB' | string
   exchangeRate: Money
-  rebatePoints: Money
   lastScannedMessageId?: string
   configured?: boolean
   enabled: boolean
 }
+
+type TelegramGroup = WhatsappGroup
 
 type CrownWager = {
   id?: number
@@ -89,13 +107,17 @@ type CrownWager = {
   stakeAmount: Money
   winLossAmount: Money
   status: string
+  createdAt?: number
 }
 
 type WhatsappOrder = {
   id?: number
+  groupId?: number
+  sourceType?: 'whatsapp' | 'telegram' | string
   businessDate: string
   orderKey: string
-  direction: 'upstream' | 'downstream' | 'company_follow' | 'rolling'
+  direction: OrderDirection
+  messageTime?: number
   senderName?: string
   rawMessage: string
   leagueName?: string
@@ -150,7 +172,6 @@ type Summary = {
   todayProfit: Money
   upstreamTotalStake?: Money
   downstreamTotalStake?: Money
-  downstreamRebateAmount?: Money
   upstreamCashflow?: Money
   downstreamCashflow?: Money
   waterLossAmount?: Money
@@ -166,10 +187,15 @@ type Dashboard = {
   summary: Summary
   crownAccounts: CrownAccount[]
   whatsappGroups: WhatsappGroup[]
+  telegramGroups: TelegramGroup[]
   crownWagers: CrownWager[]
   whatsappOrders: WhatsappOrder[]
   reconciliationResults: ReconciliationResult[]
   tasks: BookkeepingTask[]
+}
+
+type DashboardPayload = Partial<Omit<Dashboard, 'summary'>> & {
+  summary?: Partial<Summary>
 }
 
 type WhatsappSyncResult = {
@@ -196,6 +222,23 @@ type WhatsappScanResult = {
   scannedMessageCount: number
   importedCount: number
   updatedCount: number
+}
+
+type TelegramSyncResult = WhatsappSyncResult
+type TelegramStatus = WhatsappStatus
+type TelegramScanResult = WhatsappScanResult
+type Titan007ScoreFetchResult = {
+  businessDate: string
+  fetchedCount: number
+  sourceUrl: string
+  savedPath: string
+}
+type TelegramApiConfig = {
+  apiId: string
+  apiHashConfigured: boolean
+  sessionConfigured: boolean
+  bridgeConfigured: boolean
+  message: string
 }
 
 type GeneratedFileRow = {
@@ -233,7 +276,6 @@ const emptySummary: Summary = {
   todayProfit: 0,
   upstreamTotalStake: 0,
   downstreamTotalStake: 0,
-  downstreamRebateAmount: 0,
   upstreamCashflow: 0,
   downstreamCashflow: 0,
   waterLossAmount: 0,
@@ -249,11 +291,29 @@ const emptyDashboard: Dashboard = {
   summary: emptySummary,
   crownAccounts: [],
   whatsappGroups: [],
+  telegramGroups: [],
   crownWagers: [],
   whatsappOrders: [],
   reconciliationResults: [],
   tasks: [],
 }
+
+export const normalizeDashboard = (payload?: DashboardPayload | null): Dashboard => ({
+  ...emptyDashboard,
+  ...(payload ?? {}),
+  businessDate: payload?.businessDate || emptyDashboard.businessDate,
+  summary: {
+    ...emptySummary,
+    ...(payload?.summary ?? {}),
+  },
+  crownAccounts: payload?.crownAccounts ?? [],
+  whatsappGroups: payload?.whatsappGroups ?? [],
+  telegramGroups: payload?.telegramGroups ?? [],
+  crownWagers: payload?.crownWagers ?? [],
+  whatsappOrders: payload?.whatsappOrders ?? [],
+  reconciliationResults: payload?.reconciliationResults ?? [],
+  tasks: payload?.tasks ?? [],
+})
 
 const pageSurface: CSSProperties = {
   background: '#fff',
@@ -291,6 +351,50 @@ const moneyText = (value?: Money) => {
 
 const timeText = (value?: number) => value ? new Date(value).toLocaleString('zh-CN') : '-'
 
+const emptyText = (value?: ReactNode) => {
+  if (value === undefined || value === null || value === '') return '-'
+  return value
+}
+
+const matchTeamsText = (homeTeam?: string, awayTeam?: string, fallback?: string) => {
+  const home = homeTeam?.trim()
+  const away = awayTeam?.trim()
+  if (home && away) return `${home}v${away}`
+  const match = fallback?.trim()
+  if (!match) return '-'
+  return match.replace(/\s+(vs\.?|v)\s+/gi, 'v')
+}
+
+const marketOddsText = (market?: string, selection?: string, oddsValue?: Money) => {
+  const marketText = [market, selection].map((item) => item?.trim()).filter(Boolean).join(' ')
+  const oddsText = oddsValue === undefined || oddsValue === null || oddsValue === '' ? '' : `@ ${oddsValue}`
+  return [marketText, oddsText].filter(Boolean).join(' ') || '-'
+}
+
+const settlementOutcome = (value?: string) => {
+  const text = value?.trim().toLowerCase()
+  if (!text) return undefined
+  if (['win', 'won', 'full_win', '赢', '全赢'].includes(text)) return 'win'
+  if (['win_half', 'half_win', 'halfwon', '赢半', '半赢'].includes(text)) return 'win_half'
+  if (['push', 'draw', 'void', '走水', '和'].includes(text)) return 'push'
+  if (['lose_half', 'half_lose', 'halflost', '输半', '半输'].includes(text)) return 'lose_half'
+  if (['lose', 'lost', 'loss', 'full_lose', '输', '全输'].includes(text)) return 'lose'
+  return undefined
+}
+
+const orderProfitText = (order: WhatsappOrder) => {
+  const outcome = settlementOutcome(order.settlementResult)
+  if (!outcome) return '-'
+  const stake = Number(order.amount ?? 0)
+  const odds = Number(order.oddsValue ?? 0)
+  if (!Number.isFinite(stake) || !Number.isFinite(odds)) return '-'
+  if (outcome === 'win') return moneyText(stake * odds)
+  if (outcome === 'win_half') return moneyText(stake * odds * 0.5)
+  if (outcome === 'push') return moneyText(0)
+  if (outcome === 'lose_half') return moneyText(stake * -0.5)
+  return moneyText(-stake)
+}
+
 const statusColor = (status?: string) => {
   if (status === 'success' || status === 'completed' || status === 'matched' || status === 'parsed') return 'green'
   if (status === 'failed' || status === 'difference') return 'red'
@@ -298,68 +402,80 @@ const statusColor = (status?: string) => {
   return 'default'
 }
 
-const issueText: Record<string, string> = {
-  matched: '正常',
-  amount_mismatch: '金额不一致',
-  odds_mismatch: '赔率不一致',
-  missing_crown: 'Crown缺单',
-  missing_whatsapp: 'WhatsApp缺单',
-}
-
 const roleText: Record<string, string> = {
   pending: '待设置',
-  upstream: '上游群',
-  downstream: '下游群',
-  company_follow: '公司跟单群',
-  rolling: '滚球群',
+  upstream: '赛前上游',
+  downstream: '赛前下游',
+  company_follow: '赛前公司',
+  rolling: '滚球下游',
+  rolling_upstream: '滚球上游',
+  rolling_downstream: '滚球下游',
+  rolling_company: '滚球公司',
   ignored: '忽略群',
 }
 
-const effectiveRole = (group: WhatsappGroup) => group.configured === false ? 'pending' : group.role
+const groupRoleOptions = [
+  { value: 'pending', label: '待设置' },
+  { value: 'upstream', label: '赛前上游' },
+  { value: 'downstream', label: '赛前下游' },
+  { value: 'company_follow', label: '赛前公司' },
+  { value: 'rolling_upstream', label: '滚球上游' },
+  { value: 'rolling_downstream', label: '滚球下游' },
+  { value: 'rolling_company', label: '滚球公司' },
+  { value: 'ignored', label: '忽略群' },
+]
+
+const effectiveRole = (group: WhatsappGroup): GroupRole => {
+  if (group.configured === false) return 'pending'
+  if (group.role === 'rolling') return 'rolling_downstream'
+  return group.role
+}
 
 const roleColor = (role: string) => {
   if (role === 'pending') return 'gold'
-  if (role === 'upstream') return 'blue'
-  if (role === 'downstream') return 'green'
-  if (role === 'company_follow') return 'purple'
-  if (role === 'rolling') return 'cyan'
+  if (role === 'upstream' || role === 'rolling_upstream') return 'blue'
+  if (role === 'downstream' || role === 'rolling_downstream' || role === 'rolling') return 'green'
+  if (role === 'company_follow' || role === 'rolling_company') return 'purple'
   return 'default'
 }
 
-const directionText = (direction: string) => {
-  if (direction === 'upstream') return '上游'
-  if (direction === 'downstream') return '下游'
-  if (direction === 'company_follow') return '公司跟单'
-  if (direction === 'rolling') return '滚球'
-  return direction
+const roleMatchesWorkspace = (role: GroupRole, workspaceType: WorkspaceType) => {
+  if (workspaceType === 'rolling') {
+    return role === 'rolling' || role === 'rolling_upstream' || role === 'rolling_downstream' || role === 'rolling_company'
+  }
+  return role === 'upstream' || role === 'downstream' || role === 'company_follow'
 }
 
 const preMatchReportActions: ReportAction[] = [
-  { workspaceType: 'prematch', reportType: 'upstream_orders', label: '生成上游群账单' },
-  { workspaceType: 'prematch', reportType: 'downstream_before_rebate', label: '生成下游群账单（退水前）' },
-  { workspaceType: 'prematch', reportType: 'downstream_after_rebate', label: '生成下游群账单（退水后）' },
-  { workspaceType: 'prematch', reportType: 'company_orders', label: '生成公司跟单表' },
-  { workspaceType: 'prematch', reportType: 'prematch_profit', label: '生成公司总盈亏表' },
-  { workspaceType: 'prematch', reportType: 'prematch_excel', label: '一键生成全部文件' },
+  { workspaceType: 'prematch', reportType: 'upstream_orders', label: '赛前上游各群表格' },
+  { workspaceType: 'prematch', reportType: 'downstream_orders', label: '赛前下游各群表格' },
+  { workspaceType: 'prematch', reportType: 'prematch_settlement', label: '盈亏水表格' },
+  { workspaceType: 'prematch', reportType: 'prematch_profit', label: '公司盈亏表格' },
+  { workspaceType: 'prematch', reportType: 'prematch_excel', label: '一键生成' },
 ]
 
 const rollingReportActions: ReportAction[] = [
-  { workspaceType: 'rolling', reportType: 'rolling_group_orders', label: '生成滚球群账单' },
-  { workspaceType: 'rolling', reportType: 'crown_wagers', label: '生成皇冠注单表' },
-  { workspaceType: 'rolling', reportType: 'rolling_profit', label: '生成滚球盈亏表' },
-  { workspaceType: 'rolling', reportType: 'rolling_excel', label: '一键生成全部文件' },
+  { workspaceType: 'rolling', reportType: 'rolling_upstream_orders', label: '滚球上游各群表格' },
+  { workspaceType: 'rolling', reportType: 'rolling_downstream_orders', label: '滚球下游各群表格' },
+  { workspaceType: 'rolling', reportType: 'rolling_water', label: '盈亏水表格' },
+  { workspaceType: 'rolling', reportType: 'rolling_profit', label: '公司盈亏表格' },
+  { workspaceType: 'rolling', reportType: 'rolling_excel', label: '一键生成' },
 ]
 
 const reportTypeLabels: Record<string, string> = {
-  upstream_orders: '上游群账单',
-  downstream_before_rebate: '下游群账单（退水前）',
-  downstream_after_rebate: '下游群账单（退水后）',
+  upstream_orders: '赛前上游各群表格',
+  downstream_orders: '赛前下游各群表格',
   company_orders: '公司跟单表',
-  prematch_profit: '公司总盈亏表',
+  prematch_settlement: '盈亏水表格',
+  prematch_profit: '公司盈亏表格',
   prematch_excel: '全部文件',
+  rolling_upstream_orders: '滚球上游各群表格',
+  rolling_downstream_orders: '滚球下游各群表格',
+  rolling_water: '盈亏水表格',
   rolling_group_orders: '滚球群账单',
   crown_wagers: '皇冠注单表',
-  rolling_profit: '滚球盈亏表',
+  rolling_reconcile: '滚球对账表',
+  rolling_profit: '公司盈亏表格',
   rolling_excel: '全部文件',
 }
 
@@ -367,12 +483,15 @@ const reportTypeMarkers = Object.keys(reportTypeLabels).sort((a, b) => b.length 
 
 const getPageKey = (pathname: string) => {
   const clean = pathname.replace(/\/$/, '')
+  if (clean.startsWith('/bookkeeping/prematch/reconciliation')) return 'prematchReconciliation'
+  if (clean.startsWith('/bookkeeping/rolling/reconciliation')) return 'rollingReconciliation'
   if (clean.startsWith('/bookkeeping/rolling')) return 'rolling'
   if (clean.startsWith('/bookkeeping/crown/accounts')) return 'crownAccounts'
   if (clean.startsWith('/bookkeeping/whatsapp/groups')) return 'whatsappGroups'
+  if (clean.startsWith('/bookkeeping/telegram/groups')) return 'telegramGroups'
   if (clean.startsWith('/bookkeeping/crown/wagers')) return 'crownWagers'
-  if (clean.startsWith('/bookkeeping/whatsapp/orders')) return 'whatsappOrders'
-  if (clean.startsWith('/bookkeeping/reconciliation')) return 'reconciliation'
+  if (clean.startsWith('/bookkeeping/whatsapp/orders')) return 'prematchReconciliation'
+  if (clean.startsWith('/bookkeeping/reconciliation')) return 'rollingReconciliation'
   if (clean.startsWith('/bookkeeping/excel')) return 'excel'
   return 'dashboard'
 }
@@ -387,20 +506,29 @@ const Bookkeeping = () => {
   const [loading, setLoading] = useState(false)
   const [runningReport, setRunningReport] = useState<string | null>(null)
   const [scanningWhatsapp, setScanningWhatsapp] = useState<string | null>(null)
+  const [scanningTelegram, setScanningTelegram] = useState<string | null>(null)
+  const [fetchingTitan007Scores, setFetchingTitan007Scores] = useState(false)
   const [clearingGeneratedFiles, setClearingGeneratedFiles] = useState(false)
   const [syncingWhatsapp, setSyncingWhatsapp] = useState(false)
+  const [syncingTelegram, setSyncingTelegram] = useState(false)
+  const [savingTelegramApiConfig, setSavingTelegramApiConfig] = useState(false)
   const [whatsappSyncMessage, setWhatsappSyncMessage] = useState('')
+  const [telegramSyncMessage, setTelegramSyncMessage] = useState('')
   const [whatsappStatus, setWhatsappStatus] = useState<WhatsappStatus | null>(null)
+  const [telegramStatus, setTelegramStatus] = useState<TelegramStatus | null>(null)
+  const [telegramApiConfig, setTelegramApiConfig] = useState<TelegramApiConfig | null>(null)
   const [crownForm] = Form.useForm()
   const [groupForm] = Form.useForm()
+  const [telegramForm] = Form.useForm()
+  const [telegramApiConfigForm] = Form.useForm()
 
   const loadDashboard = async (date = businessDate) => {
-    const workspaceType: WorkspaceType = pageKey === 'rolling' ? 'rolling' : 'prematch'
+    const workspaceType: WorkspaceType = pageKey === 'rolling' || pageKey === 'rollingReconciliation' ? 'rolling' : 'prematch'
     setLoading(true)
     try {
       const response = await apiService.bookkeeping.dashboard({ businessDate: date, workspaceType }) as { data: ApiResponse<Dashboard> }
       if (response.data.code === 0 && response.data.data) {
-        setDashboard(response.data.data)
+        setDashboard(normalizeDashboard(response.data.data))
       } else {
         message.error(response.data.msg || '读取做账数据失败')
       }
@@ -422,11 +550,49 @@ const Bookkeeping = () => {
     setWhatsappStatus({ connected: false, status: 'unknown', message: response.data.msg || '读取 WhatsApp 状态失败' })
   }
 
+  const loadTelegramStatus = async () => {
+    const response = await apiService.bookkeeping.telegramStatus() as { data: ApiResponse<TelegramStatus> }
+    if (response.data.code === 0 && response.data.data) {
+      setTelegramStatus(response.data.data)
+      return
+    }
+    setTelegramStatus({ connected: false, status: 'unknown', message: response.data.msg || '读取 Telegram 状态失败' })
+  }
+
+  const loadTelegramApiConfig = async () => {
+    const response = await apiService.bookkeeping.telegramApiConfig() as { data: ApiResponse<TelegramApiConfig> }
+    if (response.data.code === 0 && response.data.data) {
+      const config = response.data.data
+      setTelegramApiConfig(config)
+      telegramApiConfigForm.setFieldsValue({ apiId: config.apiId, apiHash: '' })
+      return
+    }
+    setTelegramApiConfig({
+      apiId: '',
+      apiHashConfigured: false,
+      sessionConfigured: false,
+      bridgeConfigured: false,
+      message: response.data.msg || '读取 Telegram API 配置失败',
+    })
+  }
+
   useEffect(() => {
     if (pageKey === 'whatsappGroups') {
       loadWhatsappStatus()
     }
+    if (pageKey === 'telegramGroups') {
+      loadTelegramApiConfig()
+      loadTelegramStatus()
+    }
   }, [pageKey])
+
+  useEffect(() => {
+    if (pageKey !== 'telegramGroups' || telegramStatus?.status !== 'qr_required') return
+    const timer = window.setInterval(() => {
+      loadTelegramStatus()
+    }, 10000)
+    return () => window.clearInterval(timer)
+  }, [pageKey, telegramStatus?.status])
 
   const runTask = async (action: ReportAction) => {
     const runningKey = `${action.workspaceType}:${action.reportType}`
@@ -478,9 +644,6 @@ const Bookkeeping = () => {
     const response = await apiService.bookkeeping.saveWhatsappGroup({
       ...values,
       exchangeRate: Number(values.exchangeRate ?? 1),
-      rebatePoints: Number(values.rebatePoints ?? 0),
-      rebateRate: 0,
-      rebateRule: 'none',
     }) as { data: ApiResponse<WhatsappGroup> }
     if (response.data.code === 0) {
       message.success('WhatsApp群已保存')
@@ -489,6 +652,40 @@ const Bookkeeping = () => {
       return
     }
     message.error(response.data.msg || '保存失败')
+  }
+
+  const saveTelegramGroup = async () => {
+    const values = await telegramForm.validateFields()
+    const response = await apiService.bookkeeping.saveTelegramGroup({
+      ...values,
+      exchangeRate: Number(values.exchangeRate ?? 1),
+    }) as { data: ApiResponse<TelegramGroup> }
+    if (response.data.code === 0) {
+      message.success('Telegram群已保存')
+      telegramForm.resetFields()
+      await loadDashboard()
+      return
+    }
+    message.error(response.data.msg || '保存失败')
+  }
+
+  const saveTelegramApiConfig = async () => {
+    const values = await telegramApiConfigForm.validateFields()
+    setSavingTelegramApiConfig(true)
+    try {
+      const response = await apiService.bookkeeping.saveTelegramApiConfig(values) as { data: ApiResponse<TelegramApiConfig> }
+      if (response.data.code === 0 && response.data.data) {
+        const config = response.data.data
+        setTelegramApiConfig(config)
+        telegramApiConfigForm.setFieldsValue({ apiId: config.apiId, apiHash: '' })
+        message.success(config.message || 'Telegram API 已保存')
+        await loadTelegramStatus()
+        return
+      }
+      message.error(response.data.msg || '保存失败')
+    } finally {
+      setSavingTelegramApiConfig(false)
+    }
   }
 
   const editWhatsappGroup = (row: WhatsappGroup) => {
@@ -501,7 +698,20 @@ const Bookkeeping = () => {
       role: effectiveRole(row),
       currency: row.currency || 'USDT',
       exchangeRate: Number(row.exchangeRate ?? 1),
-      rebatePoints: Number(row.rebatePoints ?? 0),
+      enabled: row.enabled,
+    })
+  }
+
+  const editTelegramGroup = (row: TelegramGroup) => {
+    telegramForm.setFieldsValue({
+      id: row.id,
+      groupKey: row.groupKey,
+      sourceChatId: row.sourceChatId,
+      displayName: row.displayName,
+      chatName: row.chatName,
+      role: effectiveRole(row),
+      currency: row.currency || 'USDT',
+      exchangeRate: Number(row.exchangeRate ?? 1),
       enabled: row.enabled,
     })
   }
@@ -529,6 +739,32 @@ const Bookkeeping = () => {
       message.error(response.data.msg || '同步失败')
     } finally {
       setSyncingWhatsapp(false)
+    }
+  }
+
+  const syncTelegramChats = async () => {
+    setSyncingTelegram(true)
+    try {
+      const response = await apiService.bookkeeping.syncTelegramChats() as { data: ApiResponse<TelegramSyncResult> }
+      if (response.data.code === 0 && response.data.data) {
+        const result = response.data.data
+        setTelegramSyncMessage(result.message)
+        setDashboard((current) => ({
+          ...current,
+          telegramGroups: result.groups || current.telegramGroups,
+        }))
+        if (result.connected) {
+          message.success(result.message || 'Telegram群聊已同步')
+        } else {
+          message.warning(result.message || '没有读取到当前 Telegram 账号已加入的群聊')
+        }
+        await loadTelegramStatus()
+        await loadDashboard()
+        return
+      }
+      message.error(response.data.msg || '同步失败')
+    } finally {
+      setSyncingTelegram(false)
     }
   }
 
@@ -560,6 +796,35 @@ const Bookkeeping = () => {
     [dashboard.whatsappOrders]
   )
 
+  const groupNameById = useMemo(
+    () => new Map(
+      [...dashboard.whatsappGroups, ...dashboard.telegramGroups]
+        .filter((group) => group.id !== undefined)
+        .map((group) => [group.id as number, group.displayName || group.chatName])
+    ),
+    [dashboard.whatsappGroups, dashboard.telegramGroups]
+  )
+
+  const groupNameForOrder = (order: WhatsappOrder) => {
+    if (order.groupId === undefined || order.groupId === null) return '-'
+    return groupNameById.get(order.groupId) || '-'
+  }
+
+  const prematchReconciliationOrders = useMemo(
+    () => dashboard.whatsappOrders.filter((order) => roleMatchesWorkspace(order.direction as GroupRole, 'prematch')),
+    [dashboard.whatsappOrders]
+  )
+
+  const rollingReconciliationOrders = useMemo(
+    () => dashboard.whatsappOrders.filter((order) => roleMatchesWorkspace(order.direction as GroupRole, 'rolling')),
+    [dashboard.whatsappOrders]
+  )
+
+  const workspaceGroups = (workspaceType: WorkspaceType) => [
+    ...dashboard.whatsappGroups,
+    ...dashboard.telegramGroups,
+  ].filter((group) => group.enabled && roleMatchesWorkspace(effectiveRole(group), workspaceType))
+
   const sumOrderAmount = (orders: WhatsappOrder[]) =>
     orders.reduce((total, order) => total + Number(order.amount ?? 0), 0)
 
@@ -577,7 +842,6 @@ const Bookkeeping = () => {
     dashboard.summary.companyFollowAmount,
     Math.max(0, downstreamStake - upstreamStake)
   )
-  const downstreamRebateAmount = valueOrFallback(dashboard.summary.downstreamRebateAmount, 0)
   const waterLossAmount = valueOrFallback(dashboard.summary.waterLossAmount, 0)
   const companyNetProfit = valueOrFallback(dashboard.summary.companyNetProfit, Number(dashboard.summary.todayProfit ?? 0))
   const rollingGroupStake = valueOrFallback(dashboard.summary.rollingGroupStake, 0)
@@ -587,10 +851,9 @@ const Bookkeeping = () => {
     { label: '上游总下注额', value: moneyText(upstreamStake), hint: '所有上游确认订单金额' },
     { label: '下游总投放额', value: moneyText(downstreamStake), hint: '所有下游确认订单金额' },
     { label: '公司跟单额', value: moneyText(companyFollowStake), hint: '下游总投放额减上游总下注额' },
-    { label: '下游退水金额', value: moneyText(downstreamRebateAmount), hint: '只统计下游赢单和赢半' },
     { label: '盈亏水金额', value: moneyText(waterLossAmount), hint: '正数为赚水，负数为亏水' },
     { label: '公司总盈利', value: moneyText(companyNetProfit), hint: '包含公司跟单和盈亏水' },
-  ], [upstreamStake, downstreamStake, companyFollowStake, downstreamRebateAmount, waterLossAmount, companyNetProfit])
+  ], [upstreamStake, downstreamStake, companyFollowStake, waterLossAmount, companyNetProfit])
 
   const rollingSummaryItems = useMemo(() => [
     { label: '滚球群总投注额', value: moneyText(rollingGroupStake), hint: '群里要求下注金额' },
@@ -680,9 +943,12 @@ const Bookkeeping = () => {
     },
   ]
 
-  const groupColumns: ColumnsType<WhatsappGroup> = [
+  const createGroupColumns = (
+    sourceName: string,
+    onEdit: (row: WhatsappGroup) => void
+  ): ColumnsType<WhatsappGroup> => [
     { title: '群聊', dataIndex: 'displayName' },
-    { title: 'WhatsApp名称', dataIndex: 'chatName', ellipsis: true },
+    { title: `${sourceName}名称`, dataIndex: 'chatName', ellipsis: true },
     {
       title: '角色',
       width: 120,
@@ -699,15 +965,6 @@ const Bookkeeping = () => {
     },
     { title: '汇率', dataIndex: 'exchangeRate', width: 100, render: (value) => value ?? 1 },
     {
-      title: '退水',
-      dataIndex: 'rebatePoints',
-      width: 130,
-      render: (value) => {
-        const points = Number(value ?? 0)
-        return `${points}格 / 减${(points / 100).toFixed(2)}`
-      },
-    },
-    {
       title: '状态',
       dataIndex: 'enabled',
       width: 90,
@@ -716,46 +973,55 @@ const Bookkeeping = () => {
     {
       title: '操作',
       width: 90,
-      render: (_, row) => <Button size="small" onClick={() => editWhatsappGroup(row)}>编辑</Button>,
+      render: (_, row) => <Button size="small" onClick={() => onEdit(row)}>编辑</Button>,
+    },
+  ]
+
+  const groupColumns = createGroupColumns('WhatsApp', editWhatsappGroup)
+  const telegramGroupColumns = createGroupColumns('Telegram', editTelegramGroup)
+  const workspaceGroupColumns: ColumnsType<WhatsappGroup> = [
+    {
+      title: '来源',
+      width: 100,
+      render: (_, row) => <Tag>{row.sourceType === 'telegram' ? 'Telegram' : 'WhatsApp'}</Tag>,
+    },
+    { title: '群聊', dataIndex: 'displayName' },
+    { title: '群名', dataIndex: 'chatName', ellipsis: true },
+    {
+      title: '角色',
+      width: 120,
+      render: (_, row) => {
+        const role = effectiveRole(row)
+        return <Tag color={roleColor(role)}>{roleText[role] || role}</Tag>
+      },
+    },
+    {
+      title: '状态',
+      dataIndex: 'enabled',
+      width: 90,
+      render: (value) => <Tag color={value ? 'green' : 'default'}>{value ? '启用' : '停用'}</Tag>,
     },
   ]
 
   const wagerColumns: ColumnsType<CrownWager> = [
-    { title: '订单号', dataIndex: 'ticketId' },
-    { title: '联赛', dataIndex: 'leagueName' },
-    { title: '主队', dataIndex: 'homeTeam' },
-    { title: '客队', dataIndex: 'awayTeam' },
-    { title: '盘口', render: (_, row) => [row.marketType, row.selectionName].filter(Boolean).join(' ') },
-    { title: '赔率', dataIndex: 'oddsValue' },
+    { title: '投注时间', dataIndex: 'createdAt', render: timeText },
+    { title: '联赛类型', dataIndex: 'leagueName', render: emptyText },
+    { title: '比赛队伍', render: (_, row) => matchTeamsText(row.homeTeam, row.awayTeam) },
+    { title: '投注盘口及赔率', render: (_, row) => marketOddsText(row.marketType, row.selectionName, row.oddsValue) },
     { title: '投注金额', dataIndex: 'stakeAmount', render: moneyText },
-    { title: '输赢', dataIndex: 'winLossAmount', render: moneyText },
-    { title: '状态', dataIndex: 'status', render: (value) => <Tag color={statusColor(value)}>{value}</Tag> },
+    { title: '赛果', dataIndex: 'status', render: emptyText },
+    { title: '盈亏', dataIndex: 'winLossAmount', render: moneyText },
   ]
 
-  const orderColumns: ColumnsType<WhatsappOrder> = [
-    { title: '订单号', dataIndex: 'orderKey' },
-    { title: '方向', dataIndex: 'direction', render: directionText },
-    { title: '联赛', dataIndex: 'leagueName' },
-    { title: '比赛', dataIndex: 'matchName' },
-    { title: '盘口', dataIndex: 'marketText' },
-    { title: '赔率', dataIndex: 'oddsValue' },
-    { title: '金额', dataIndex: 'amount', render: moneyText },
-    { title: '赛果', dataIndex: 'settlementResult', render: (value) => value || '-' },
-    { title: '状态', dataIndex: 'parseStatus', render: (value) => <Tag color={statusColor(value)}>{value}</Tag> },
-  ]
-
-  const reconciliationColumns: ColumnsType<ReconciliationResult> = [
-    {
-      title: '问题',
-      dataIndex: 'issueType',
-      render: (value) => <Tag color={statusColor(value === 'matched' ? 'matched' : 'difference')}>{issueText[value] || value || '未匹配'}</Tag>,
-    },
-    { title: 'Crown投注ID', dataIndex: 'crownWagerId' },
-    { title: 'WhatsApp订单ID', dataIndex: 'whatsappOrderId' },
-    { title: '金额差异', dataIndex: 'amountDiff', render: moneyText },
-    { title: '赔率差异', dataIndex: 'oddsDiff' },
-    { title: '利润', dataIndex: 'profitAmount', render: moneyText },
-    { title: '说明', dataIndex: 'notes', ellipsis: true },
+  const orderBillColumns: ColumnsType<WhatsappOrder> = [
+    { title: '投注时间', dataIndex: 'messageTime', render: timeText },
+    { title: '联赛类型', dataIndex: 'leagueName', render: emptyText },
+    { title: '比赛队伍', render: (_, row) => matchTeamsText(undefined, undefined, row.matchName) },
+    { title: '投注盘口及赔率', render: (_, row) => marketOddsText(row.marketText, undefined, row.oddsValue) },
+    { title: '投注金额', dataIndex: 'amount', render: moneyText },
+    { title: '赛果', dataIndex: 'settlementResult', render: emptyText },
+    { title: '盈亏', render: (_, row) => orderProfitText(row) },
+    { title: '群名', render: (_, row) => groupNameForOrder(row) },
   ]
 
   const taskColumns: ColumnsType<BookkeepingTask> = [
@@ -857,6 +1123,53 @@ const Bookkeeping = () => {
     }
   }
 
+  const scanTelegramMessages = async (workspaceType: WorkspaceType, force = false) => {
+    const runningKey = `${workspaceType}:${force ? 'rescan' : 'scan'}`
+    setScanningTelegram(runningKey)
+    try {
+      const response = await apiService.bookkeeping.scanTelegramMessages({
+        businessDate,
+        workspaceType,
+        scanStart: workspaceType === 'prematch' ? scanStart : undefined,
+        scanEnd: workspaceType === 'prematch' ? scanEnd : undefined,
+        force,
+      }) as { data: ApiResponse<TelegramScanResult> }
+      if (response.data.code === 0 && response.data.data) {
+        const result = response.data.data
+        if (result.connected) {
+          message.success(result.message || '扫描完成')
+        } else {
+          message.warning(result.message || 'Telegram 还没有连接')
+        }
+        await loadDashboard()
+        return
+      }
+      message.error(response.data.msg || '扫描失败')
+    } finally {
+      setScanningTelegram(null)
+    }
+  }
+
+  const fetchTitan007Scores = async () => {
+    setFetchingTitan007Scores(true)
+    try {
+      const response = await apiService.bookkeeping.fetchTitan007Scores({ businessDate }) as { data: ApiResponse<Titan007ScoreFetchResult> }
+      if (response.data.code === 0 && response.data.data) {
+        const result = response.data.data
+        if (result.fetchedCount > 0) {
+          message.success(`已抓取 ${result.fetchedCount} 场赛果`)
+        } else {
+          message.warning('未抓到赛果，请确认当前日期已有完场数据')
+        }
+        await loadDashboard()
+        return
+      }
+      message.error(response.data.msg || '抓取赛果失败')
+    } finally {
+      setFetchingTitan007Scores(false)
+    }
+  }
+
   const noticeWorkInProgress = (label: string) => {
     message.info(`${label}功能还没有连接 WhatsApp 消息读取程序`)
   }
@@ -923,7 +1236,7 @@ const Bookkeeping = () => {
           loading={scanningWhatsapp === 'prematch:scan'}
           disabled={scanningWhatsapp !== null && scanningWhatsapp !== 'prematch:scan'}
         >
-          扫描群聊
+          扫描WhatsApp赛前群
         </Button>
         <Button
           icon={<ReloadOutlined />}
@@ -931,7 +1244,30 @@ const Bookkeeping = () => {
           loading={scanningWhatsapp === 'prematch:rescan'}
           disabled={scanningWhatsapp !== null && scanningWhatsapp !== 'prematch:rescan'}
         >
-          重新扫描
+          重扫WhatsApp赛前群
+        </Button>
+        <Button
+          icon={<CloudSyncOutlined />}
+          onClick={() => scanTelegramMessages('prematch')}
+          loading={scanningTelegram === 'prematch:scan'}
+          disabled={scanningTelegram !== null && scanningTelegram !== 'prematch:scan'}
+        >
+          扫描TG赛前群
+        </Button>
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={() => scanTelegramMessages('prematch', true)}
+          loading={scanningTelegram === 'prematch:rescan'}
+          disabled={scanningTelegram !== null && scanningTelegram !== 'prematch:rescan'}
+        >
+          重扫TG赛前群
+        </Button>
+        <Button
+          icon={<CloudDownloadOutlined />}
+          onClick={fetchTitan007Scores}
+          loading={fetchingTitan007Scores}
+        >
+          抓取赛果
         </Button>
         {preMatchReportActions.map(renderReportButton)}
       </div>
@@ -951,7 +1287,22 @@ const Bookkeeping = () => {
           loading={scanningWhatsapp === 'rolling:scan'}
           disabled={scanningWhatsapp !== null && scanningWhatsapp !== 'rolling:scan'}
         >
-          扫描滚球群
+          扫描WhatsApp滚球群
+        </Button>
+        <Button
+          icon={<CloudSyncOutlined />}
+          onClick={() => scanTelegramMessages('rolling')}
+          loading={scanningTelegram === 'rolling:scan'}
+          disabled={scanningTelegram !== null && scanningTelegram !== 'rolling:scan'}
+        >
+          扫描TG滚球群
+        </Button>
+        <Button
+          icon={<CloudDownloadOutlined />}
+          onClick={fetchTitan007Scores}
+          loading={fetchingTitan007Scores}
+        >
+          抓取赛果
         </Button>
         <Button icon={<CloudUploadOutlined />} onClick={() => noticeWorkInProgress('抓取皇冠注单')}>抓取皇冠注单</Button>
         {rollingReportActions.map(renderReportButton)}
@@ -995,11 +1346,43 @@ const Bookkeeping = () => {
     )
   }
 
+  const renderWorkspaceGroupsSection = (workspaceType: WorkspaceType) => {
+    const groups = workspaceGroups(workspaceType)
+    return renderPanel(
+      workspaceType === 'rolling' ? '滚球群配置' : '赛前群配置',
+      `${groups.length} 个群`,
+      <Table
+        size="small"
+        loading={loading}
+        rowKey={(row) => `${row.sourceType || 'whatsapp'}-${row.id || row.groupKey}`}
+        columns={workspaceGroupColumns}
+        dataSource={groups}
+        pagination={false}
+        scroll={{ x: 720 }}
+      />
+    )
+  }
+
+  const renderTelegramApiQr = (value?: string) => {
+    if (!value) return null
+    if (value.startsWith('data:image')) {
+      return (
+        <img
+          src={value}
+          alt="Telegram API 登录二维码"
+          style={{ width: 220, height: 220, display: 'block', background: '#fff', borderRadius: 6 }}
+        />
+      )
+    }
+    return <QRCode value={value} size={220} />
+  }
+
   const renderDashboardPage = () => (
     <Space direction="vertical" size={20} style={pageContainer}>
       {renderHeader('赛前工作台', '上游订单、下游拆单、公司跟单与赛前结算中心')}
       {renderPreMatchTimeBar()}
       {renderPreMatchActions()}
+      {renderWorkspaceGroupsSection('prematch')}
       {renderMetricGrid(preMatchSummaryItems)}
       {renderGeneratedFilesSection('prematch')}
     </Space>
@@ -1010,6 +1393,7 @@ const Bookkeeping = () => {
       {renderHeader('滚球工作台', '滚球群订单、皇冠真实注单与滚球盈亏生成中心')}
       {renderRollingTimeBar()}
       {renderRollingActions()}
+      {renderWorkspaceGroupsSection('rolling')}
       {renderMetricGrid(rollingSummaryItems)}
       {renderGeneratedFilesSection('rolling')}
     </Space>
@@ -1063,13 +1447,13 @@ const Bookkeeping = () => {
 
   const renderWhatsappGroupsPage = () => (
     <Space direction="vertical" size={16} style={pageContainer}>
-      {renderHeader('WhatsApp群聊', '读取本机 WhatsApp 群聊，设置上游、下游、公司跟单、滚球或忽略')}
+      {renderHeader('WhatsApp群聊', '读取本机 WhatsApp 群聊，设置赛前上游、赛前下游、赛前公司、滚球上游、滚球下游、滚球公司或忽略')}
 
       <div style={pageSurface}>
         <div style={panelTitle}>
           <div>
             <Text strong>群聊同步</Text>
-            <div><Text type="secondary">同步后会显示当前可读取的群聊，再给每个群设置角色、货币、汇率和退水。</Text></div>
+            <div><Text type="secondary">同步后会显示当前可读取的群聊，再给每个群设置角色、货币和汇率。</Text></div>
           </div>
           <Space wrap>
             <Button onClick={loadWhatsappStatus}>刷新登录状态</Button>
@@ -1109,7 +1493,7 @@ const Bookkeeping = () => {
             <Form
               form={groupForm}
               layout="vertical"
-              initialValues={{ enabled: true, role: 'pending', currency: 'USDT', exchangeRate: 1, rebatePoints: 0 }}
+              initialValues={{ enabled: true, role: 'pending', currency: 'USDT', exchangeRate: 1 }}
             >
               <Form.Item name="id" hidden><Input /></Form.Item>
               <Form.Item name="sourceChatId" label="WhatsApp Chat ID"><Input placeholder="同步后自动带入" /></Form.Item>
@@ -1117,14 +1501,7 @@ const Bookkeeping = () => {
               <Form.Item name="displayName" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}><Input /></Form.Item>
               <Form.Item name="chatName" label="群聊名称" rules={[{ required: true, message: '请输入群聊名称' }]}><Input /></Form.Item>
               <Form.Item name="role" label="角色" rules={[{ required: true }]}>
-                <Select options={[
-                  { value: 'pending', label: '待设置' },
-                  { value: 'upstream', label: '上游群' },
-                  { value: 'downstream', label: '下游群' },
-                  { value: 'company_follow', label: '公司跟单群' },
-                  { value: 'rolling', label: '滚球群' },
-                  { value: 'ignored', label: '忽略群' },
-                ]} />
+                <Select options={groupRoleOptions} />
               </Form.Item>
               <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <Form.Item name="currency" label="货币" rules={[{ required: true }]}>
@@ -1137,9 +1514,6 @@ const Bookkeeping = () => {
                   <InputNumber min={0.000001} precision={6} style={{ width: '100%' }} />
                 </Form.Item>
               </section>
-              <Form.Item name="rebatePoints" label="退水（格）" tooltip="6格表示每单赔率减0.06">
-                <InputNumber min={0} precision={2} style={{ width: '100%' }} addonAfter="格" />
-              </Form.Item>
               <Form.Item name="enabled" label="启用" valuePropName="checked"><Switch /></Form.Item>
               <Space>
                 <Button type="primary" icon={<CloudUploadOutlined />} onClick={saveWhatsappGroup}>保存群聊</Button>
@@ -1170,9 +1544,175 @@ const Bookkeeping = () => {
     </Space>
   )
 
+  const renderTelegramGroupsPage = () => (
+    <Space direction="vertical" size={16} style={pageContainer}>
+      {renderHeader('Telegram群聊', '读取当前 Telegram 账号已加入的群聊，设置赛前上游、赛前下游、赛前公司、滚球上游、滚球下游、滚球公司或忽略')}
+
+      <div style={pageSurface}>
+        <div style={panelTitle}>
+          <div>
+            <Text strong>Telegram API 配置</Text>
+            <div><Text type="secondary">填写 my.telegram.org 获取的 API_ID 和 API_HASH，保存后会重启 Telegram 读取服务。</Text></div>
+          </div>
+          {telegramApiConfig && (
+            <Tag color={telegramApiConfig.bridgeConfigured ? 'green' : 'gold'}>
+              {telegramApiConfig.bridgeConfigured ? '已配置' : '未配置'}
+            </Tag>
+          )}
+        </div>
+        <div style={panelBody}>
+          <Form form={telegramApiConfigForm} layout="vertical">
+            <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Form.Item name="apiId" label="API_ID" rules={[{ required: true, message: '请输入 API_ID' }]}>
+                <Input placeholder="12345678" />
+              </Form.Item>
+              <Form.Item name="apiHash" label="API_HASH" tooltip="不填则保留原 API_HASH">
+                <Input.Password autoComplete="new-password" placeholder="不填则保留原值" />
+              </Form.Item>
+            </section>
+            <Space wrap>
+              <Button type="primary" icon={<CloudUploadOutlined />} onClick={saveTelegramApiConfig} loading={savingTelegramApiConfig}>
+                保存 API 配置
+              </Button>
+              {telegramApiConfig?.message && <Text type="secondary">{telegramApiConfig.message}</Text>}
+            </Space>
+          </Form>
+        </div>
+      </div>
+
+      <div style={pageSurface}>
+        <div style={panelTitle}>
+          <div>
+            <Text strong>群聊同步</Text>
+            <div><Text type="secondary">同步后会显示当前 Telegram 账号已加入且可读取的群聊，再给每个群设置角色、货币和汇率。</Text></div>
+          </div>
+          <Space wrap>
+            <Button onClick={loadTelegramStatus}>刷新登录状态</Button>
+            <Button icon={<CloudSyncOutlined />} onClick={syncTelegramChats} loading={syncingTelegram}>
+              同步本机群聊
+            </Button>
+          </Space>
+        </div>
+        {telegramStatus && (
+          <div style={{ padding: '12px 18px', borderBottom: '1px solid #edf1f7' }}>
+            <Alert
+              type={telegramStatus.connected ? 'success' : telegramStatus.status === 'qr_required' ? 'warning' : 'info'}
+              showIcon
+              message={telegramStatus.message}
+            />
+            {telegramStatus.qr && (
+              <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                {renderTelegramApiQr(telegramStatus.qr)}
+                <Text type="secondary">用手机 Telegram 的“连接桌面设备”扫描，登录成功后点“同步本机群聊”。二维码会自动刷新。</Text>
+              </div>
+            )}
+          </div>
+        )}
+        {telegramSyncMessage && (
+          <div style={{ padding: '12px 18px', borderBottom: '1px solid #edf1f7' }}>
+            <Alert type="info" showIcon message={telegramSyncMessage} />
+          </div>
+        )}
+      </div>
+
+      <section style={pageSurface}>
+        <div style={panelTitle}>
+          <div>
+            <Text strong>消息扫描</Text>
+            <div><Text type="secondary">按当前日期和时间范围扫描已启用、已设置角色的 Telegram 群消息。</Text></div>
+          </div>
+          <Space wrap>
+            <Button
+              icon={<CloudSyncOutlined />}
+              onClick={() => scanTelegramMessages('prematch')}
+              loading={scanningTelegram === 'prematch:scan'}
+              disabled={scanningTelegram !== null && scanningTelegram !== 'prematch:scan'}
+            >
+              扫描TG群聊
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => scanTelegramMessages('prematch', true)}
+              loading={scanningTelegram === 'prematch:rescan'}
+              disabled={scanningTelegram !== null && scanningTelegram !== 'prematch:rescan'}
+            >
+              重新扫描
+            </Button>
+            <Button
+              icon={<CloudSyncOutlined />}
+              onClick={() => scanTelegramMessages('rolling')}
+              loading={scanningTelegram === 'rolling:scan'}
+              disabled={scanningTelegram !== null && scanningTelegram !== 'rolling:scan'}
+            >
+              扫描TG滚球群
+            </Button>
+          </Space>
+        </div>
+      </section>
+
+      <section style={{ display: 'grid', gridTemplateColumns: '380px minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
+        <div style={pageSurface}>
+          <div style={panelTitle}>
+            <Text strong>群聊配置</Text>
+          </div>
+          <div style={panelBody}>
+            <Form
+              form={telegramForm}
+              layout="vertical"
+              initialValues={{ enabled: true, role: 'pending', currency: 'USDT', exchangeRate: 1 }}
+            >
+              <Form.Item name="id" hidden><Input /></Form.Item>
+              <Form.Item name="sourceChatId" label="Telegram Chat ID"><Input placeholder="同步后自动带入" /></Form.Item>
+              <Form.Item name="groupKey" label="群标识" rules={[{ required: true, message: '请输入群标识' }]}><Input placeholder="telegram-downstream-orders" /></Form.Item>
+              <Form.Item name="displayName" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}><Input /></Form.Item>
+              <Form.Item name="chatName" label="群聊名称" rules={[{ required: true, message: '请输入群聊名称' }]}><Input /></Form.Item>
+              <Form.Item name="role" label="角色" rules={[{ required: true }]}>
+                <Select options={groupRoleOptions} />
+              </Form.Item>
+              <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Form.Item name="currency" label="货币" rules={[{ required: true }]}>
+                  <Select options={[
+                    { value: 'USDT', label: 'U / USDT' },
+                    { value: 'RMB', label: 'RMB' },
+                  ]} />
+                </Form.Item>
+                <Form.Item name="exchangeRate" label="汇率" rules={[{ required: true, message: '请输入汇率' }]}>
+                  <InputNumber min={0.000001} precision={6} style={{ width: '100%' }} />
+                </Form.Item>
+              </section>
+              <Form.Item name="enabled" label="启用" valuePropName="checked"><Switch /></Form.Item>
+              <Space>
+                <Button type="primary" icon={<CloudUploadOutlined />} onClick={saveTelegramGroup}>保存群聊</Button>
+                <Button onClick={() => telegramForm.resetFields()}>清空</Button>
+              </Space>
+            </Form>
+          </div>
+        </div>
+
+        <div style={pageSurface}>
+          <div style={panelTitle}>
+            <Text strong>群聊列表</Text>
+            <Text type="secondary">{dashboard.telegramGroups.length} 个群</Text>
+          </div>
+          <div style={panelBody}>
+            <Table
+              size="middle"
+              loading={loading}
+              rowKey={(row) => row.id || row.groupKey}
+              columns={telegramGroupColumns}
+              dataSource={dashboard.telegramGroups}
+              scroll={{ x: 1040 }}
+              pagination={{ pageSize: 10 }}
+            />
+          </div>
+        </div>
+      </section>
+    </Space>
+  )
+
   const renderCrownWagersPage = () => (
     <Space direction="vertical" size={16} style={pageContainer}>
-      {renderHeader('Crown投注', '查看每个 Crown 账号抓到的投注记录')}
+      {renderHeader('皇冠投注中心', '查看皇冠投注明细')}
       <div style={pageSurface}>
         <div style={panelBody}>
           <Table loading={loading} rowKey={(row) => row.id || row.ticketId} columns={wagerColumns} dataSource={dashboard.crownWagers} scroll={{ x: 980 }} />
@@ -1181,23 +1721,23 @@ const Bookkeeping = () => {
     </Space>
   )
 
-  const renderWhatsappOrdersPage = () => (
+  const renderPrematchReconciliationPage = () => (
     <Space direction="vertical" size={16} style={pageContainer}>
-      {renderHeader('WhatsApp订单', '上游大单和下游小单统一查看')}
+      {renderHeader('赛前对账中心', '查看赛前群订单明细')}
       <div style={pageSurface}>
         <div style={panelBody}>
-          <Table loading={loading} rowKey={(row) => row.id || row.orderKey} columns={orderColumns} dataSource={dashboard.whatsappOrders} scroll={{ x: 900 }} />
+          <Table loading={loading} rowKey={(row) => row.id || row.orderKey} columns={orderBillColumns} dataSource={prematchReconciliationOrders} scroll={{ x: 980 }} />
         </div>
       </div>
     </Space>
   )
 
-  const renderReconciliationPage = () => (
+  const renderRollingReconciliationPage = () => (
     <Space direction="vertical" size={16} style={pageContainer}>
-      {renderHeader('对账结果', 'WhatsApp订单、Crown投注和利润差异')}
+      {renderHeader('滚球对账中心', '查看滚球群订单明细')}
       <div style={pageSurface}>
         <div style={panelBody}>
-          <Table loading={loading} rowKey={(row) => row.id || `${row.issueType}-${row.crownWagerId}-${row.whatsappOrderId}`} columns={reconciliationColumns} dataSource={dashboard.reconciliationResults} scroll={{ x: 900 }} />
+          <Table loading={loading} rowKey={(row) => row.id || row.orderKey} columns={orderBillColumns} dataSource={rollingReconciliationOrders} scroll={{ x: 980 }} />
         </div>
       </div>
     </Space>
@@ -1226,9 +1766,10 @@ const Bookkeeping = () => {
   if (pageKey === 'rolling') return renderRollingPage()
   if (pageKey === 'crownAccounts') return renderCrownAccountsPage()
   if (pageKey === 'whatsappGroups') return renderWhatsappGroupsPage()
+  if (pageKey === 'telegramGroups') return renderTelegramGroupsPage()
   if (pageKey === 'crownWagers') return renderCrownWagersPage()
-  if (pageKey === 'whatsappOrders') return renderWhatsappOrdersPage()
-  if (pageKey === 'reconciliation') return renderReconciliationPage()
+  if (pageKey === 'prematchReconciliation') return renderPrematchReconciliationPage()
+  if (pageKey === 'rollingReconciliation') return renderRollingReconciliationPage()
   if (pageKey === 'excel') return renderExcelPage()
   return renderDashboardPage()
 }

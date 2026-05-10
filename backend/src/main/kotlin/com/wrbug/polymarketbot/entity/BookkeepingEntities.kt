@@ -89,6 +89,8 @@ data class BookkeepingWhatsappGroup(
     val id: Long? = null,
     @Column(name = "group_key", nullable = false, length = 64)
     val groupKey: String = "",
+    @Column(name = "source_type", nullable = false, length = 32)
+    val sourceType: String = "whatsapp",
     @Column(name = "source_chat_id", length = 128)
     val sourceChatId: String? = null,
     @Column(name = "display_name", nullable = false, length = 128)
@@ -128,6 +130,8 @@ data class BookkeepingWhatsappOrder(
     val taskId: Long? = null,
     @Column(name = "group_id")
     val groupId: Long? = null,
+    @Column(name = "source_type", nullable = false, length = 32)
+    val sourceType: String = "whatsapp",
     @Column(name = "business_date", nullable = false, length = 10)
     val businessDate: String = "",
     @Column(name = "order_key", nullable = false, length = 128)

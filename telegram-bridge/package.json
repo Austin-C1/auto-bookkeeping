@@ -1,0 +1,12 @@
+{
+  "name": "blackcat-telegram-bridge",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "telegram": "^2.26.22"
+  }
+}

@@ -94,6 +94,8 @@ Thumbs.db
 *~
 
 # Database
+data/
+telegram-bridge/data/
 *.db
 *.sqlite
 *.sqlite3

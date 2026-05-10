@@ -35,6 +35,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.TimeUnit
 
 @Service
 class BookkeepingService(
@@ -48,8 +49,18 @@ class BookkeepingService(
     private val cryptoUtils: CryptoUtils,
     private val calculator: BookkeepingCalculator,
     private val excelReportWriter: BookkeepingExcelReportWriter,
-    private val objectMapper: ObjectMapper
+    private val titan007ScoreCrawler: BookkeepingTitan007ScoreCrawler,
+    private val objectMapper: ObjectMapper,
+    private val telegramApiConfigStore: BookkeepingTelegramApiConfigStore
 ) {
+    private companion object {
+        const val MESSAGE_SOURCE_WHATSAPP = "whatsapp"
+        const val MESSAGE_SOURCE_TELEGRAM = "telegram"
+        val PREMATCH_GROUP_ROLES = setOf("upstream", "downstream", "company_follow")
+        val ROLLING_GROUP_ROLES = setOf("rolling", "rolling_upstream", "rolling_downstream", "rolling_company")
+        val BOOKKEEPING_GROUP_ROLES = setOf("pending", "ignored") + PREMATCH_GROUP_ROLES + ROLLING_GROUP_ROLES
+    }
+
     private data class WhatsappBridgeGroupsResponse(
         val connected: Boolean = false,
         val status: String = "",
@@ -109,8 +120,11 @@ class BookkeepingService(
         val workspaceType = normaliseWorkspaceType(workspaceTypeValue ?: "prematch")
         val accounts = listCrownAccounts()
         val whatsappGroups = listWhatsappGroups()
+        val telegramGroups = listTelegramGroups()
+        val messageGroups = whatsappGroups + telegramGroups
         val wagers = crownWagerRepository.findByBusinessDateOrderByCreatedAtDesc(date).map { it.toDto() }
-        val whatsappOrders = whatsappOrderRepository.findByBusinessDateOrderByCreatedAtDesc(date).map { it.toDto() }
+        val allWhatsappOrders = whatsappOrderRepository.findByBusinessDateOrderByCreatedAtDesc(date)
+        val whatsappOrders = ordersForWorkspace(workspaceType, allWhatsappOrders.map { it.toDto() })
         val latestTask = taskRepository.findTopByBusinessDateAndWorkspaceTypeOrderByCreatedAtDesc(date, workspaceType)
         val reconciliationResults = latestTask?.id
             ?.let { reconciliationRepository.findByTaskIdOrderByCreatedAtAsc(it).map { item -> item.toDto() } }
@@ -121,10 +135,11 @@ class BookkeepingService(
             summary = if (workspaceType == "rolling") {
                 buildRollingSummaryDto(accounts, wagers, whatsappOrders)
             } else {
-                buildPrematchSummaryDto(accounts, wagers, whatsappOrders, differenceCount, whatsappGroups)
+                buildPrematchSummaryDto(accounts, wagers, whatsappOrders, differenceCount, messageGroups)
             },
             crownAccounts = accounts,
             whatsappGroups = whatsappGroups,
+            telegramGroups = telegramGroups,
             crownWagers = wagers,
             whatsappOrders = whatsappOrders,
             reconciliationResults = reconciliationResults,
@@ -243,19 +258,36 @@ class BookkeepingService(
     }
 
     fun listWhatsappGroups(): List<BookkeepingWhatsappGroupDto> {
-        return whatsappGroupRepository.findAllByOrderByDisplayNameAsc().map { it.toDto() }
+        return listMessageGroups(MESSAGE_SOURCE_WHATSAPP)
+    }
+
+    fun listTelegramGroups(): List<BookkeepingTelegramGroupDto> {
+        return listMessageGroups(MESSAGE_SOURCE_TELEGRAM)
+    }
+
+    private fun listMessageGroups(sourceType: String): List<BookkeepingWhatsappGroupDto> {
+        return whatsappGroupRepository.findAllBySourceTypeOrderByDisplayNameAsc(sourceType).map { it.toDto() }
     }
 
     @Transactional
     fun saveWhatsappGroup(request: SaveBookkeepingWhatsappGroupRequest): BookkeepingWhatsappGroupDto {
+        return saveMessageGroup(request, MESSAGE_SOURCE_WHATSAPP)
+    }
+
+    @Transactional
+    fun saveTelegramGroup(request: SaveBookkeepingTelegramGroupRequest): BookkeepingTelegramGroupDto {
+        return saveMessageGroup(request, MESSAGE_SOURCE_TELEGRAM)
+    }
+
+    private fun saveMessageGroup(
+        request: SaveBookkeepingWhatsappGroupRequest,
+        sourceType: String
+    ): BookkeepingWhatsappGroupDto {
         val now = System.currentTimeMillis()
         val groupKey = cleanRequired(request.groupKey, "groupKey")
         val existing = request.id?.let { whatsappGroupRepository.findById(it).orElse(null) }
-            ?: whatsappGroupRepository.findByGroupKey(groupKey)
-        val role = cleanRequired(request.role, "role").lowercase()
-        require(role in setOf("pending", "upstream", "downstream", "company_follow", "rolling", "ignored")) {
-            "role must be pending, upstream, downstream, company_follow, rolling or ignored"
-        }
+            ?: whatsappGroupRepository.findByGroupKeyAndSourceType(groupKey, sourceType)
+        val role = normaliseGroupRole(request.role)
         val currency = normaliseCurrency(request.currency)
         val rebateRule = normaliseRebateRule(request.rebateRule)
         require(request.exchangeRate > BigDecimal.ZERO) { "exchangeRate must be greater than 0" }
@@ -266,6 +298,7 @@ class BookkeepingService(
             BookkeepingWhatsappGroup(
                 id = existing?.id,
                 groupKey = groupKey,
+                sourceType = sourceType,
                 sourceChatId = request.sourceChatId?.trim()?.takeIf { it.isNotEmpty() } ?: existing?.sourceChatId,
                 displayName = cleanRequired(request.displayName, "displayName"),
                 chatName = cleanRequired(request.chatName, "chatName"),
@@ -289,7 +322,9 @@ class BookkeepingService(
     fun whatsappBootstrap(): BookkeepingWhatsappBootstrapDto {
         return BookkeepingWhatsappBootstrapDto(
             crownAccounts = crownAccountRepository.findByEnabledOrderByDisplayNameAsc(true).map { it.toDto() },
-            whatsappGroups = whatsappGroupRepository.findByEnabledOrderByDisplayNameAsc(true).map { it.toDto() },
+            whatsappGroups = whatsappGroupRepository
+                .findByEnabledAndSourceTypeOrderByDisplayNameAsc(true, MESSAGE_SOURCE_WHATSAPP)
+                .map { it.toDto() },
             endpoints = mapOf(
                 "importOrders" to "/api/bookkeeping/whatsapp/orders/import",
                 "syncChats" to "/api/bookkeeping/whatsapp/chats/sync",
@@ -320,7 +355,7 @@ class BookkeepingService(
         }
 
         val now = System.currentTimeMillis()
-        val existingGroups = whatsappGroupRepository.findAll()
+        val existingGroups = whatsappGroupRepository.findAllBySourceTypeOrderByDisplayNameAsc(MESSAGE_SOURCE_WHATSAPP)
         val bySourceChatId = existingGroups
             .mapNotNull { group -> group.sourceChatId?.takeIf { it.isNotBlank() }?.let { it to group } }
             .toMap()
@@ -334,6 +369,7 @@ class BookkeepingService(
             BookkeepingWhatsappGroup(
                 id = existing?.id,
                 groupKey = existing?.groupKey ?: groupKey,
+                sourceType = MESSAGE_SOURCE_WHATSAPP,
                 sourceChatId = sourceChatId.take(128),
                 displayName = existing?.displayName ?: chatName.take(128),
                 chatName = chatName.take(255),
@@ -379,12 +415,136 @@ class BookkeepingService(
     }
 
     @Transactional
+    fun syncTelegramChats(): BookkeepingTelegramChatSyncResultDto {
+        val bridgeResponse = runCatching { fetchTelegramBridgeGroups() }.getOrNull()
+            ?: return BookkeepingTelegramChatSyncResultDto(
+                connected = false,
+                status = "bridge_unavailable",
+                message = "未检测到本机 Telegram 读取服务，当前显示已保存的群聊配置。",
+                groups = listTelegramGroups()
+            )
+
+        if (!bridgeResponse.connected) {
+            return BookkeepingTelegramChatSyncResultDto(
+                connected = false,
+                status = bridgeResponse.status.ifEmpty { "not_ready" },
+                message = bridgeResponse.message.ifEmpty { "Telegram 尚未登录或尚未读取到群聊。" },
+                groups = listTelegramGroups()
+            )
+        }
+
+        val now = System.currentTimeMillis()
+        val existingGroups = whatsappGroupRepository.findAllBySourceTypeOrderByDisplayNameAsc(MESSAGE_SOURCE_TELEGRAM)
+        val bySourceChatId = existingGroups
+            .mapNotNull { group -> group.sourceChatId?.takeIf { it.isNotBlank() }?.let { it to group } }
+            .toMap()
+        val byGroupKey = existingGroups.associateBy { it.groupKey }
+
+        val syncedGroups = bridgeResponse.groups.mapNotNull { chat ->
+            val sourceChatId = chat.id?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            val chatName = chat.name?.trim()?.takeIf { it.isNotEmpty() } ?: sourceChatId
+            val groupKey = buildTelegramGroupKey(sourceChatId)
+            val existing = bySourceChatId[sourceChatId] ?: byGroupKey[groupKey]
+            BookkeepingWhatsappGroup(
+                id = existing?.id,
+                groupKey = existing?.groupKey ?: groupKey,
+                sourceType = MESSAGE_SOURCE_TELEGRAM,
+                sourceChatId = sourceChatId.take(128),
+                displayName = existing?.displayName ?: chatName.take(128),
+                chatName = chatName.take(255),
+                role = existing?.takeIf { it.configured }?.role ?: "pending",
+                currency = existing?.currency ?: "USDT",
+                exchangeRate = existing?.exchangeRate ?: BigDecimal.ONE,
+                rebatePoints = existing?.rebatePoints ?: BigDecimal.ZERO,
+                rebateRate = existing?.rebateRate ?: BigDecimal.ZERO,
+                rebateRule = existing?.rebateRule ?: "none",
+                lastScannedMessageId = existing?.lastScannedMessageId,
+                configured = existing?.configured ?: false,
+                enabled = existing?.enabled ?: true,
+                createdAt = existing?.createdAt ?: now,
+                updatedAt = now
+            )
+        }
+        if (syncedGroups.isNotEmpty()) {
+            whatsappGroupRepository.saveAll(syncedGroups)
+        }
+
+        return BookkeepingTelegramChatSyncResultDto(
+            connected = true,
+            status = bridgeResponse.status.ifEmpty { "ready" },
+            message = "已同步 ${syncedGroups.size} 个 Telegram 群聊。",
+            groups = listTelegramGroups()
+        )
+    }
+
+    fun telegramApiConfig(): BookkeepingTelegramApiConfigDto {
+        return telegramApiConfigStore.read()
+    }
+
+    fun saveTelegramApiConfig(request: SaveBookkeepingTelegramApiConfigRequest): BookkeepingTelegramApiConfigDto {
+        val saved = telegramApiConfigStore.save(request)
+        val restartMessage = runCatching {
+            restartTelegramBridge()
+            "Telegram 读取服务已重启。"
+        }.getOrElse { error ->
+            "Telegram API 已保存，但读取服务重启失败：${error.message ?: "未知错误"}"
+        }
+        return saved.copy(message = restartMessage)
+    }
+
+    fun telegramStatus(): BookkeepingTelegramStatusDto {
+        val status = runCatching { fetchTelegramBridgeStatus() }.getOrNull()
+            ?: return BookkeepingTelegramStatusDto(
+                connected = false,
+                status = "bridge_unavailable",
+                message = "未检测到本机 Telegram 读取服务。",
+                qr = null
+            )
+        return BookkeepingTelegramStatusDto(
+            connected = status.connected,
+            status = status.status,
+            message = status.message,
+            qr = status.qr
+        )
+    }
+
+    private fun restartTelegramBridge() {
+        val rootDir = telegramApiConfigStore.projectRootDir()
+        val scriptPath = rootDir.resolve("start-telegram-bridge.ps1")
+        require(Files.exists(scriptPath)) { "start-telegram-bridge.ps1 not found" }
+
+        val command = listOf(
+            "\$port = if (\$env:TELEGRAM_BRIDGE_PORT) { [int]\$env:TELEGRAM_BRIDGE_PORT } else { 18884 }",
+            "Get-NetTCPConnection -State Listen -LocalPort \$port -ErrorAction SilentlyContinue | " +
+                "Select-Object -ExpandProperty OwningProcess -Unique | " +
+                "ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }",
+            "Start-Process -FilePath (Join-Path \$PSHOME 'powershell.exe') " +
+                "-ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','${powerShellSingleQuoted(scriptPath.toString())}') " +
+                "-WorkingDirectory '${powerShellSingleQuoted(rootDir.toString())}' -WindowStyle Hidden"
+        ).joinToString("; ")
+
+        val process = ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command)
+            .directory(rootDir.toFile())
+            .start()
+        if (!process.waitFor(10, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            throw IllegalStateException("restart command timed out")
+        }
+        require(process.exitValue() == 0) { "restart command exited ${process.exitValue()}" }
+    }
+
+    private fun powerShellSingleQuoted(value: String): String = value.replace("'", "''")
+
+    @Transactional
     fun scanWhatsappMessages(request: ScanBookkeepingWhatsappMessagesRequest): BookkeepingWhatsappMessageScanResultDto {
         validateBusinessDate(request.businessDate)
         val workspaceType = normaliseWorkspaceType(request.workspaceType)
         val roles = rolesForWhatsappScan(workspaceType)
         val groups = whatsappGroupRepository.findAll()
-            .filter { it.enabled && it.configured && it.role in roles && !it.sourceChatId.isNullOrBlank() }
+            .filter {
+                it.sourceType == MESSAGE_SOURCE_WHATSAPP &&
+                    it.enabled && it.configured && it.role in roles && !it.sourceChatId.isNullOrBlank()
+            }
         if (groups.isEmpty()) {
             return BookkeepingWhatsappMessageScanResultDto(
                 connected = false,
@@ -442,14 +602,16 @@ class BookkeepingService(
         val groupsBySourceChatId = groups
             .mapNotNull { group -> group.sourceChatId?.takeIf { it.isNotBlank() }?.let { it to group } }
             .toMap()
-        val imports = bridgeResponse.messages.flatMap { message ->
+        val messagesForImport = messagesAfterLastScanned(groups, bridgeResponse.messages, request.force)
+        val imports = messagesForImport.flatMap { message ->
             val sourceChatId = message.chatId?.trim()?.takeIf { it.isNotEmpty() } ?: return@flatMap emptyList()
             val group = groupsBySourceChatId[sourceChatId] ?: return@flatMap emptyList()
             parseWhatsappMessageBlocks(message.body.orEmpty()).mapIndexed { index, parsed ->
                 BookkeepingWhatsappOrderImportDto(
                     groupKey = group.groupKey,
                     orderKey = buildWhatsappOrderKey(workspaceType, message, index),
-                    direction = if (workspaceType == "rolling") "rolling" else group.role,
+                    sourceType = MESSAGE_SOURCE_WHATSAPP,
+                    direction = group.role,
                     messageTime = message.timestamp,
                     senderName = message.author ?: message.from ?: message.chatName,
                     rawMessage = parsed.rawMessage,
@@ -475,11 +637,123 @@ class BookkeepingService(
         return BookkeepingWhatsappMessageScanResultDto(
             connected = true,
             status = bridgeResponse.status.ifEmpty { "ready" },
-            message = "扫描完成：读取 ${bridgeResponse.messages.size} 条消息，导入 ${importResult.importedCount} 条订单，更新 ${importResult.updatedCount} 条订单。",
+            message = "扫描完成：读取 ${bridgeResponse.messages.size} 条消息，处理 ${messagesForImport.size} 条新消息，导入 ${importResult.importedCount} 条订单，更新 ${importResult.updatedCount} 条订单。",
             workspaceType = workspaceType,
             businessDate = request.businessDate,
             scannedGroupCount = groups.size,
-            scannedMessageCount = bridgeResponse.messages.size,
+            scannedMessageCount = messagesForImport.size,
+            importedCount = importResult.importedCount,
+            updatedCount = importResult.updatedCount
+        )
+    }
+
+    @Transactional
+    fun scanTelegramMessages(request: ScanBookkeepingTelegramMessagesRequest): BookkeepingTelegramMessageScanResultDto {
+        validateBusinessDate(request.businessDate)
+        val workspaceType = normaliseWorkspaceType(request.workspaceType)
+        val roles = rolesForWhatsappScan(workspaceType)
+        val groups = whatsappGroupRepository.findAll()
+            .filter {
+                it.sourceType == MESSAGE_SOURCE_TELEGRAM &&
+                    it.enabled && it.configured && it.role in roles && !it.sourceChatId.isNullOrBlank()
+            }
+        if (groups.isEmpty()) {
+            return BookkeepingTelegramMessageScanResultDto(
+                connected = false,
+                status = "no_groups",
+                message = if (workspaceType == "rolling") {
+                    "没有配置已启用的 Telegram 滚球群。"
+                } else {
+                    "没有配置已启用的 Telegram 上游群、下游群或公司跟单群。"
+                },
+                workspaceType = workspaceType,
+                businessDate = request.businessDate,
+                scannedGroupCount = 0,
+                scannedMessageCount = 0,
+                importedCount = 0,
+                updatedCount = 0
+            )
+        }
+
+        val (startTime, endTime) = scanWindowMillis(request.businessDate, request.scanStart, request.scanEnd)
+        val bridgeResponse = runCatching {
+            fetchTelegramBridgeMessages(
+                chatIds = groups.mapNotNull { it.sourceChatId },
+                startTime = startTime,
+                endTime = endTime,
+                limit = request.limit.coerceIn(1, 1000)
+            )
+        }.getOrElse { error ->
+            return BookkeepingTelegramMessageScanResultDto(
+                connected = false,
+                status = "bridge_unavailable",
+                message = error.message ?: "未检测到本机 Telegram 读取服务。",
+                workspaceType = workspaceType,
+                businessDate = request.businessDate,
+                scannedGroupCount = groups.size,
+                scannedMessageCount = 0,
+                importedCount = 0,
+                updatedCount = 0
+            )
+        }
+
+        if (!bridgeResponse.connected) {
+            return BookkeepingTelegramMessageScanResultDto(
+                connected = false,
+                status = bridgeResponse.status.ifEmpty { "not_ready" },
+                message = bridgeResponse.message.ifEmpty { "Telegram 尚未登录或尚未读取到消息。" },
+                workspaceType = workspaceType,
+                businessDate = request.businessDate,
+                scannedGroupCount = groups.size,
+                scannedMessageCount = 0,
+                importedCount = 0,
+                updatedCount = 0
+            )
+        }
+
+        val groupsBySourceChatId = groups
+            .mapNotNull { group -> group.sourceChatId?.takeIf { it.isNotBlank() }?.let { it to group } }
+            .toMap()
+        val messagesForImport = messagesAfterLastScanned(groups, bridgeResponse.messages, request.force)
+        val imports = messagesForImport.flatMap { message ->
+            val sourceChatId = message.chatId?.trim()?.takeIf { it.isNotEmpty() } ?: return@flatMap emptyList()
+            val group = groupsBySourceChatId[sourceChatId] ?: return@flatMap emptyList()
+            parseWhatsappMessageBlocks(message.body.orEmpty()).mapIndexed { index, parsed ->
+                BookkeepingWhatsappOrderImportDto(
+                    groupKey = group.groupKey,
+                    orderKey = buildTelegramOrderKey(workspaceType, message, index),
+                    sourceType = MESSAGE_SOURCE_TELEGRAM,
+                    direction = group.role,
+                    messageTime = message.timestamp,
+                    senderName = message.author ?: message.from ?: message.chatName,
+                    rawMessage = parsed.rawMessage,
+                    leagueName = parsed.leagueName,
+                    matchName = parsed.matchName,
+                    marketText = parsed.marketText,
+                    oddsValue = parsed.oddsValue,
+                    amount = parsed.amount,
+                    currency = group.currency,
+                    parseStatus = parsed.parseStatus
+                )
+            }
+        }
+
+        val importResult = if (imports.isEmpty()) {
+            ImportBookkeepingWhatsappOrdersResultDto(request.businessDate, 0, 0)
+        } else {
+            importWhatsappOrders(ImportBookkeepingWhatsappOrdersRequest(request.businessDate, imports))
+        }
+
+        updateLastScannedMessageIds(groups, bridgeResponse.messages)
+
+        return BookkeepingTelegramMessageScanResultDto(
+            connected = true,
+            status = bridgeResponse.status.ifEmpty { "ready" },
+            message = "扫描完成：读取 ${bridgeResponse.messages.size} 条 Telegram 消息，处理 ${messagesForImport.size} 条新消息，导入 ${importResult.importedCount} 条订单，更新 ${importResult.updatedCount} 条订单。",
+            workspaceType = workspaceType,
+            businessDate = request.businessDate,
+            scannedGroupCount = groups.size,
+            scannedMessageCount = messagesForImport.size,
             importedCount = importResult.importedCount,
             updatedCount = importResult.updatedCount
         )
@@ -488,18 +762,20 @@ class BookkeepingService(
     @Transactional
     fun importWhatsappOrders(request: ImportBookkeepingWhatsappOrdersRequest): ImportBookkeepingWhatsappOrdersResultDto {
         validateBusinessDate(request.businessDate)
-        val groups = whatsappGroupRepository.findAll().associateBy { it.groupKey }
+        val groups = whatsappGroupRepository.findAll().associateBy { it.sourceType to it.groupKey }
         val now = System.currentTimeMillis()
         var imported = 0
         var updated = 0
         val orders = request.orders.map { item ->
             val orderKey = cleanRequired(item.orderKey, "orderKey")
             val existing = whatsappOrderRepository.findByBusinessDateAndOrderKey(request.businessDate, orderKey)
+            val sourceType = normaliseMessageSourceType(item.sourceType)
             if (existing == null) imported += 1 else updated += 1
             BookkeepingWhatsappOrder(
                 id = existing?.id,
                 taskId = existing?.taskId,
-                groupId = groups[item.groupKey]?.id,
+                groupId = groups[sourceType to item.groupKey]?.id,
+                sourceType = sourceType,
                 businessDate = request.businessDate,
                 orderKey = orderKey,
                 direction = cleanRequired(item.direction, "direction"),
@@ -522,6 +798,14 @@ class BookkeepingService(
         return ImportBookkeepingWhatsappOrdersResultDto(request.businessDate, imported, updated)
     }
 
+    fun fetchTitan007ScoreResults(request: FetchBookkeepingTitan007ScoresRequest): BookkeepingTitan007ScoreFetchResultDto {
+        validateBusinessDate(request.businessDate)
+        val start = parseScanTime(request.startTime, LocalTime.MIN)
+        val end = parseScanTime(request.endTime, LocalTime.of(23, 59, 59))
+        require(!end.isBefore(start)) { "endTime must be greater than or equal to startTime" }
+        return titan007ScoreCrawler.fetchScoreResults(request)
+    }
+
     @Transactional
     fun runTask(request: RunBookkeepingTaskRequest): BookkeepingTaskDto {
         validateBusinessDate(request.businessDate)
@@ -542,70 +826,84 @@ class BookkeepingService(
             )
         )
         val taskId = task.id ?: throw IllegalStateException("bookkeeping task id is empty")
-        val accounts = listCrownAccounts()
-        val groups = listWhatsappGroups()
-        val wagers = crownWagerRepository.findByBusinessDateOrderByCreatedAtDesc(request.businessDate)
-        val whatsappOrders = whatsappOrderRepository.findByBusinessDateOrderByCreatedAtDesc(request.businessDate)
-        val reconciliationItems = if (workspaceType == "prematch") {
-            calculator.reconcile(
-                wagers = wagers.map { it.toCalculator() },
-                whatsappOrders = whatsappOrders.map { it.toCalculator() }
-            )
-        } else {
-            emptyList()
-        }
-        reconciliationRepository.deleteByTaskId(taskId)
-        val reconciliationResults = reconciliationRepository.saveAll(
-            reconciliationItems.map { item ->
-                BookkeepingReconciliationResult(
-                    taskId = taskId,
-                    crownWagerId = item.crownWagerId,
-                    whatsappOrderId = item.whatsappOrderId,
-                    matchStatus = item.matchStatus,
-                    issueType = item.issueType,
-                    amountDiff = item.amountDiff,
-                    oddsDiff = item.oddsDiff,
-                    profitAmount = item.profitAmount,
-                    notes = item.notes,
-                    createdAt = System.currentTimeMillis()
+        return runCatching {
+            val accounts = listCrownAccounts()
+            val groups = whatsappGroupRepository.findAllByOrderByDisplayNameAsc().map { it.toDto() }
+            val wagers = crownWagerRepository.findByBusinessDateOrderByCreatedAtDesc(request.businessDate)
+            val allWhatsappOrders = whatsappOrderRepository.findByBusinessDateOrderByCreatedAtDesc(request.businessDate)
+            val workspaceWhatsappOrders = allWhatsappOrders.filter { orderMatchesWorkspace(workspaceType, it.direction) }
+            val reconciliationItems = if (workspaceType == "prematch") {
+                calculator.reconcile(
+                    wagers = wagers.map { it.toCalculator() },
+                    whatsappOrders = workspaceWhatsappOrders.map { it.toCalculator() }
+                )
+            } else {
+                emptyList()
+            }
+            reconciliationRepository.deleteByTaskId(taskId)
+            val reconciliationResults = reconciliationRepository.saveAll(
+                reconciliationItems.map { item ->
+                    BookkeepingReconciliationResult(
+                        taskId = taskId,
+                        crownWagerId = item.crownWagerId,
+                        whatsappOrderId = item.whatsappOrderId,
+                        matchStatus = item.matchStatus,
+                        issueType = item.issueType,
+                        amountDiff = item.amountDiff,
+                        oddsDiff = item.oddsDiff,
+                        profitAmount = item.profitAmount,
+                        notes = item.notes,
+                        createdAt = System.currentTimeMillis()
+                    )
+                }
+            ).map { it.toDto() }
+            val wagerDtos = wagers.map { it.toDto() }
+            val whatsappOrderDtos = ordersForWorkspace(workspaceType, allWhatsappOrders.map { it.toDto() })
+            val summary = if (workspaceType == "rolling") {
+                buildRollingSummaryDto(accounts, wagerDtos, whatsappOrderDtos)
+            } else {
+                buildPrematchSummaryDto(
+                    accounts = accounts,
+                    wagers = wagerDtos,
+                    whatsappOrders = whatsappOrderDtos,
+                    differenceCount = reconciliationItems.count { it.issueType != "matched" },
+                    whatsappGroups = groups
                 )
             }
-        ).map { it.toDto() }
-        val wagerDtos = wagers.map { it.toDto() }
-        val whatsappOrderDtos = whatsappOrders.map { it.toDto() }
-        val summary = if (workspaceType == "rolling") {
-            buildRollingSummaryDto(accounts, wagerDtos, whatsappOrderDtos)
-        } else {
-            buildPrematchSummaryDto(
+            val excelPath = excelReportWriter.writeDailyReport(
+                businessDate = request.businessDate,
+                taskId = taskId,
+                workspaceType = workspaceType,
+                reportType = reportType,
+                summary = summary,
                 accounts = accounts,
                 wagers = wagerDtos,
                 whatsappOrders = whatsappOrderDtos,
-                differenceCount = reconciliationItems.count { it.issueType != "matched" },
-                whatsappGroups = groups
+                whatsappGroups = groups,
+                reconciliationResults = reconciliationResults
             )
+            val finishedAt = System.currentTimeMillis()
+            taskRepository.save(
+                task.copy(
+                    status = "completed",
+                    finishedAt = finishedAt,
+                    resultSummaryJson = summary.toJson(),
+                    excelPath = excelPath,
+                    updatedAt = finishedAt
+                )
+            ).toDto()
+        }.getOrElse { error ->
+            val finishedAt = System.currentTimeMillis()
+            taskRepository.save(
+                task.copy(
+                    status = "failed",
+                    finishedAt = finishedAt,
+                    resultSummaryJson = error.message,
+                    updatedAt = finishedAt
+                )
+            )
+            throw error
         }
-        val excelPath = excelReportWriter.writeDailyReport(
-            businessDate = request.businessDate,
-            taskId = taskId,
-            workspaceType = workspaceType,
-            reportType = reportType,
-            summary = summary,
-            accounts = accounts,
-            wagers = wagerDtos,
-            whatsappOrders = whatsappOrderDtos,
-            whatsappGroups = groups,
-            reconciliationResults = reconciliationResults
-        )
-        val finishedAt = System.currentTimeMillis()
-        return taskRepository.save(
-            task.copy(
-                status = "completed",
-                finishedAt = finishedAt,
-                resultSummaryJson = summary.toJson(),
-                excelPath = excelPath,
-                updatedAt = finishedAt
-            )
-        ).toDto()
     }
 
     fun downloadTaskFile(taskId: Long): FileSystemResource {
@@ -686,19 +984,29 @@ class BookkeepingService(
         return rule
     }
 
+    private fun normaliseGroupRole(value: String): String {
+        val role = cleanRequired(value, "role").lowercase()
+        require(role in BOOKKEEPING_GROUP_ROLES) {
+            "role must be pending, upstream, downstream, company_follow, rolling_upstream, rolling_downstream, rolling_company, rolling or ignored"
+        }
+        return role
+    }
+
     private fun normaliseReportType(value: String): String {
         val reportType = value.trim().lowercase().ifEmpty { "daily" }
         require(
             reportType in setOf(
                 "daily",
                 "crown_wagers",
-                "downstream_before_rebate",
-                "downstream_after_rebate",
+                "downstream_orders",
                 "upstream_orders",
                 "company_orders",
                 "prematch_settlement",
                 "prematch_profit",
                 "prematch_excel",
+                "rolling_upstream_orders",
+                "rolling_downstream_orders",
+                "rolling_water",
                 "rolling_group_orders",
                 "rolling_reconcile",
                 "rolling_profit",
@@ -722,6 +1030,9 @@ class BookkeepingService(
         val allowed = when (workspaceType) {
             "rolling" -> setOf(
                 "crown_wagers",
+                "rolling_upstream_orders",
+                "rolling_downstream_orders",
+                "rolling_water",
                 "rolling_group_orders",
                 "rolling_reconcile",
                 "rolling_profit",
@@ -729,8 +1040,7 @@ class BookkeepingService(
             )
             else -> setOf(
                 "daily",
-                "downstream_before_rebate",
-                "downstream_after_rebate",
+                "downstream_orders",
                 "upstream_orders",
                 "company_orders",
                 "prematch_settlement",
@@ -805,8 +1115,83 @@ class BookkeepingService(
         return objectMapper.readValue(response.body())
     }
 
+    private fun fetchTelegramBridgeGroups(): WhatsappBridgeGroupsResponse {
+        val bridgeBaseUrl = telegramBridgeBaseUrl()
+        val request = HttpRequest.newBuilder(URI.create("$bridgeBaseUrl/groups"))
+            .timeout(Duration.ofSeconds(5))
+            .GET()
+            .build()
+        val response = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(2))
+            .build()
+            .send(request, HttpResponse.BodyHandlers.ofString())
+        require(response.statusCode() in 200..299) { "Telegram bridge returned ${response.statusCode()}" }
+        return objectMapper.readValue(response.body())
+    }
+
+    private fun fetchTelegramBridgeStatus(): WhatsappBridgeStatusResponse {
+        val bridgeBaseUrl = telegramBridgeBaseUrl()
+        val request = HttpRequest.newBuilder(URI.create("$bridgeBaseUrl/status"))
+            .timeout(Duration.ofSeconds(5))
+            .GET()
+            .build()
+        val response = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(2))
+            .build()
+            .send(request, HttpResponse.BodyHandlers.ofString())
+        require(response.statusCode() in 200..299) { "Telegram bridge returned ${response.statusCode()}" }
+        return objectMapper.readValue(response.body())
+    }
+
+    private fun fetchTelegramBridgeMessages(
+        chatIds: List<String>,
+        startTime: Long,
+        endTime: Long,
+        limit: Int
+    ): WhatsappBridgeMessagesResponse {
+        val bridgeBaseUrl = telegramBridgeBaseUrl()
+        val body = objectMapper.writeValueAsString(
+            WhatsappBridgeMessagesRequest(
+                chatIds = chatIds,
+                startTime = startTime,
+                endTime = endTime,
+                limit = limit
+            )
+        )
+        val request = HttpRequest.newBuilder(URI.create("$bridgeBaseUrl/messages"))
+            .timeout(Duration.ofSeconds(20))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build()
+        val response = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(2))
+            .build()
+            .send(request, HttpResponse.BodyHandlers.ofString())
+        require(response.statusCode() in 200..299) { "Telegram bridge returned ${response.statusCode()}" }
+        return objectMapper.readValue(response.body())
+    }
+
+    private fun telegramBridgeBaseUrl(): String =
+        (System.getenv("BOOKKEEPING_TELEGRAM_BRIDGE_URL") ?: "http://127.0.0.1:18884")
+            .trim()
+            .trimEnd('/')
+
     private fun rolesForWhatsappScan(workspaceType: String): Set<String> =
-        if (workspaceType == "rolling") setOf("rolling") else setOf("upstream", "downstream", "company_follow")
+        if (workspaceType == "rolling") ROLLING_GROUP_ROLES else PREMATCH_GROUP_ROLES
+
+    private fun ordersForWorkspace(
+        workspaceType: String,
+        orders: List<BookkeepingWhatsappOrderDto>
+    ): List<BookkeepingWhatsappOrderDto> =
+        orders.filter { orderMatchesWorkspace(workspaceType, it.direction) }
+
+    private fun orderMatchesWorkspace(workspaceType: String, direction: String): Boolean {
+        return if (workspaceType == "rolling") {
+            direction.lowercase() in ROLLING_GROUP_ROLES
+        } else {
+            direction.lowercase() in PREMATCH_GROUP_ROLES
+        }
+    }
 
     private fun scanWindowMillis(
         businessDate: String,
@@ -847,7 +1232,7 @@ class BookkeepingService(
                 marketText = lines.getOrNull(marketIndex).takeIf { marketIndex >= 0 },
                 oddsValue = odds,
                 amount = amount,
-                parseStatus = if (amount != null || odds != null) "parsed" else "suspicious"
+                parseStatus = if (amount != null && odds != null) "parsed" else "suspicious"
             )
         }
     }
@@ -891,6 +1276,18 @@ class BookkeepingService(
             .take(128)
     }
 
+    private fun buildTelegramOrderKey(
+        workspaceType: String,
+        message: WhatsappBridgeMessage,
+        blockIndex: Int
+    ): String {
+        val source = message.messageId
+            ?: "${message.chatId.orEmpty()}-${message.timestamp ?: 0}-${message.body.orEmpty().hashCode()}"
+        return "telegram_$workspaceType-$blockIndex-$source"
+            .replace(Regex("[^A-Za-z0-9_-]"), "-")
+            .take(128)
+    }
+
     private fun updateLastScannedMessageIds(
         groups: List<BookkeepingWhatsappGroup>,
         messages: List<WhatsappBridgeMessage>
@@ -909,6 +1306,31 @@ class BookkeepingService(
         }
     }
 
+    private fun messagesAfterLastScanned(
+        groups: List<BookkeepingWhatsappGroup>,
+        messages: List<WhatsappBridgeMessage>,
+        force: Boolean
+    ): List<WhatsappBridgeMessage> {
+        if (force) return messages
+        val lastScannedByChatId = groups
+            .mapNotNull { group ->
+                val chatId = group.sourceChatId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val messageId = group.lastScannedMessageId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                chatId to messageId
+            }
+            .toMap()
+        if (lastScannedByChatId.isEmpty()) return messages
+
+        return messages
+            .groupBy { it.chatId }
+            .flatMap { (chatId, chatMessages) ->
+                val lastScannedMessageId = lastScannedByChatId[chatId] ?: return@flatMap chatMessages
+                val lastSeenIndex = chatMessages.indexOfFirst { it.messageId == lastScannedMessageId }
+                if (lastSeenIndex >= 0) chatMessages.drop(lastSeenIndex + 1) else chatMessages
+            }
+            .sortedBy { it.timestamp ?: 0 }
+    }
+
     private fun buildWhatsappGroupKey(sourceChatId: String): String {
         val normalized = sourceChatId
             .replace(Regex("[^A-Za-z0-9_-]"), "-")
@@ -916,6 +1338,20 @@ class BookkeepingService(
             .ifEmpty { "group" }
         return "wa-${normalized.take(61)}"
     }
+
+    private fun buildTelegramGroupKey(sourceChatId: String): String {
+        val normalized = sourceChatId
+            .replace(Regex("[^A-Za-z0-9_-]"), "-")
+            .trim('-')
+            .ifEmpty { "group" }
+        return "telegram_${normalized.take(55)}"
+    }
+
+    private fun normaliseMessageSourceType(value: String?): String =
+        when (value?.trim()?.lowercase()) {
+            MESSAGE_SOURCE_TELEGRAM -> MESSAGE_SOURCE_TELEGRAM
+            else -> MESSAGE_SOURCE_WHATSAPP
+        }
 
     private fun encryptCrownPassword(value: String): String {
         return "enc:${cryptoUtils.encrypt(value)}"
@@ -1008,7 +1444,6 @@ class BookkeepingService(
             todayProfit = summary.todayProfit,
             upstreamTotalStake = summary.upstreamTotalStake,
             downstreamTotalStake = summary.downstreamTotalStake,
-            downstreamRebateAmount = summary.downstreamRebateAmount,
             upstreamCashflow = summary.upstreamCashflow,
             downstreamCashflow = summary.downstreamCashflow,
             waterLossAmount = summary.waterLossAmount,
@@ -1078,7 +1513,6 @@ class BookkeepingService(
             todayProfit = summary.todayProfit,
             upstreamTotalStake = summary.upstreamTotalStake,
             downstreamTotalStake = summary.downstreamTotalStake,
-            downstreamRebateAmount = summary.downstreamRebateAmount,
             upstreamCashflow = summary.upstreamCashflow,
             downstreamCashflow = summary.downstreamCashflow,
             waterLossAmount = summary.waterLossAmount,
@@ -1098,6 +1532,7 @@ class BookkeepingService(
     private fun BookkeepingWhatsappGroup.toDto() = BookkeepingWhatsappGroupDto(
         id = id,
         groupKey = groupKey,
+        sourceType = sourceType,
         sourceChatId = sourceChatId,
         displayName = displayName,
         chatName = chatName,
@@ -1156,6 +1591,7 @@ class BookkeepingService(
         id = id,
         taskId = taskId,
         groupId = groupId,
+        sourceType = sourceType,
         businessDate = businessDate,
         orderKey = orderKey,
         direction = direction,

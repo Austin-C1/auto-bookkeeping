@@ -13,37 +13,34 @@ class BookkeepingCalculatorTest {
     private val calculator = BookkeepingCalculator()
 
     @Test
-    fun `downstream full win subtracts rebate points from odds before settlement`() {
+    fun `downstream full win uses confirmed odds without rebate adjustment`() {
         val cashflow = calculator.calculateDownstreamCashflow(
             stake = BigDecimal("10000"),
             odds = BigDecimal("1.89"),
-            rebatePoints = BigDecimal("5"),
             settlementResult = "win"
         )
 
-        assertMoneyEquals("18400", cashflow)
+        assertMoneyEquals("18900", cashflow)
     }
 
     @Test
-    fun `downstream half win subtracts rebate points from odds and then halves settlement`() {
+    fun `downstream half win uses confirmed odds and then halves settlement`() {
         val cashflow = calculator.calculateDownstreamCashflow(
             stake = BigDecimal("10000"),
             odds = BigDecimal("1.89"),
-            rebatePoints = BigDecimal("5"),
             settlementResult = "win_half"
         )
 
-        assertMoneyEquals("9200", cashflow)
+        assertMoneyEquals("9450", cashflow)
     }
 
     @Test
-    fun `downstream losing and push results do not use rebate points`() {
+    fun `downstream losing and push results use direct settlement rules`() {
         assertMoneyEquals(
             "-10000",
             calculator.calculateDownstreamCashflow(
                 stake = BigDecimal("10000"),
                 odds = BigDecimal("1.89"),
-                rebatePoints = BigDecimal("5"),
                 settlementResult = "lose"
             )
         )
@@ -52,7 +49,6 @@ class BookkeepingCalculatorTest {
             calculator.calculateDownstreamCashflow(
                 stake = BigDecimal("10000"),
                 odds = BigDecimal("1.89"),
-                rebatePoints = BigDecimal("5"),
                 settlementResult = "lose_half"
             )
         )
@@ -61,14 +57,13 @@ class BookkeepingCalculatorTest {
             calculator.calculateDownstreamCashflow(
                 stake = BigDecimal("10000"),
                 odds = BigDecimal("1.89"),
-                rebatePoints = BigDecimal("5"),
                 settlementResult = "push"
             )
         )
     }
 
     @Test
-    fun `summary uses settlement cashflow and downstream rebate points when results are present`() {
+    fun `summary uses confirmed downstream odds when results are present`() {
         val summary = calculator.buildDailySummary(
             accounts = emptyList(),
             wagers = emptyList(),
@@ -90,10 +85,59 @@ class BookkeepingCalculatorTest {
             )
         )
 
-        assertMoneyEquals("-300", summary.todayProfit)
-        assertMoneyEquals("500", summary.downstreamRebateAmount)
-        assertMoneyEquals("-300", summary.waterLossAmount)
-        assertMoneyEquals("-300", summary.companyNetProfit)
+        assertMoneyEquals("200", summary.todayProfit)
+        assertMoneyEquals("200", summary.waterLossAmount)
+        assertMoneyEquals("200", summary.companyNetProfit)
+    }
+
+    @Test
+    fun `prematch summary ignores rolling orders`() {
+        val summary = calculator.buildDailySummary(
+            accounts = emptyList(),
+            wagers = emptyList(),
+            whatsappOrders = listOf(
+                order("UP-1", "upstream", "valid", amount = "20000"),
+                order("DOWN-1", "downstream", "valid", amount = "12000"),
+                order("ROLL-1", "rolling", "valid", amount = "99999", odds = "0.83", settlementResult = "win")
+            ),
+            differences = 0
+        )
+
+        assertEquals(2, summary.whatsappOrderCount)
+        assertMoneyEquals("20000", summary.upstreamTotalStake)
+        assertMoneyEquals("12000", summary.downstreamTotalStake)
+        assertMoneyEquals("8000", summary.todayProfit)
+        assertMoneyEquals("0", summary.rollingGroupStake)
+    }
+
+    @Test
+    fun `prematch summary keeps unsettled orders when other orders are settled`() {
+        val summary = calculator.buildDailySummary(
+            accounts = emptyList(),
+            wagers = emptyList(),
+            whatsappOrders = listOf(
+                order("UP-SETTLED", "upstream", "valid", amount = "10000", odds = "1.87", settlementResult = "win"),
+                order(
+                    "DOWN-SETTLED",
+                    "downstream",
+                    "valid",
+                    amount = "10000",
+                    odds = "1.89",
+                    groupId = 1,
+                    settlementResult = "win"
+                ),
+                order("UP-PENDING", "upstream", "valid", amount = "20000"),
+                order("DOWN-PENDING", "downstream", "valid", amount = "15000")
+            ),
+            differences = 0,
+            whatsappGroups = listOf(
+                BookkeepingCalculatorWhatsappGroup(id = 1, rebatePoints = BigDecimal("5"))
+            )
+        )
+
+        assertMoneyEquals("200", summary.upstreamCashflow.add(summary.downstreamCashflow))
+        assertMoneyEquals("5200", summary.todayProfit)
+        assertMoneyEquals("5200", summary.companyNetProfit)
     }
 
     @Test
@@ -156,8 +200,8 @@ class BookkeepingCalculatorTest {
             )
         )
 
-        assertMoneyEquals("300", summary.waterLossAmount)
-        assertMoneyEquals("300", summary.companyNetProfit)
+        assertMoneyEquals("500", summary.waterLossAmount)
+        assertMoneyEquals("500", summary.companyNetProfit)
     }
 
     @Test
@@ -222,6 +266,58 @@ class BookkeepingCalculatorTest {
         assertEquals(0, summary.companyFollowCount)
         assertEquals(BigDecimal.ZERO, summary.companyFollowAmount)
         assertEquals(BigDecimal("12.00"), summary.todayProfit)
+    }
+
+    @Test
+    fun `rolling summary ignores prematch orders`() {
+        val summary = calculator.buildRollingSummary(
+            accounts = emptyList(),
+            wagers = listOf(wager("ROLL-1", "settled", stake = "10000", winLoss = "8300")),
+            whatsappOrders = listOf(
+                order("ROLL-ORDER", "rolling", "valid", amount = "10000", odds = "0.83", settlementResult = "win"),
+                order("UP-ORDER", "upstream", "valid", amount = "50000", odds = "1.87", settlementResult = "win")
+            )
+        )
+
+        assertEquals(1, summary.whatsappOrderCount)
+        assertMoneyEquals("10000", summary.rollingGroupStake)
+        assertMoneyEquals("8300", summary.rollingGroupSettlement)
+        assertMoneyEquals("0", summary.rollingProfitDiff)
+    }
+
+    @Test
+    fun `rolling summary accepts explicit rolling upstream downstream and company orders`() {
+        val summary = calculator.buildRollingSummary(
+            accounts = emptyList(),
+            wagers = listOf(wager("ROLL-1", "settled", stake = "60000", winLoss = "108000")),
+            whatsappOrders = listOf(
+                order("ROLL-UP", "rolling_upstream", "valid", amount = "10000", odds = "1.80", settlementResult = "win"),
+                order("ROLL-DOWN", "rolling_downstream", "valid", amount = "20000", odds = "1.80", settlementResult = "win"),
+                order("ROLL-COMPANY", "rolling_company", "valid", amount = "30000", odds = "1.80", settlementResult = "win"),
+                order("PRE-UP", "upstream", "valid", amount = "99999", odds = "1.80", settlementResult = "win")
+            )
+        )
+
+        assertEquals(3, summary.whatsappOrderCount)
+        assertMoneyEquals("60000", summary.rollingGroupStake)
+        assertMoneyEquals("108000", summary.rollingGroupSettlement)
+        assertMoneyEquals("0", summary.rollingProfitDiff)
+    }
+
+    @Test
+    fun `rolling summary exposes upstream downstream cashflow and water amount`() {
+        val summary = calculator.buildRollingSummary(
+            accounts = emptyList(),
+            wagers = emptyList(),
+            whatsappOrders = listOf(
+                order("ROLL-UP", "rolling_upstream", "valid", amount = "10000", odds = "1.80", settlementResult = "win"),
+                order("ROLL-DOWN", "rolling_downstream", "valid", amount = "20000", odds = "1.80", settlementResult = "win")
+            )
+        )
+
+        assertMoneyEquals("-18000", summary.upstreamCashflow)
+        assertMoneyEquals("36000", summary.downstreamCashflow)
+        assertMoneyEquals("18000", summary.waterLossAmount)
     }
 
     @Test

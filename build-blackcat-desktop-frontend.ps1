@@ -2,8 +2,8 @@ $rootDir = (Resolve-Path (Split-Path -Parent $MyInvocation.MyCommand.Path)).Path
 $frontendDir = Join-Path $rootDir 'frontend'
 $distDir = Join-Path $frontendDir 'dist'
 $markerPath = Join-Path $distDir '.desktop-runtime.json'
-$apiUrl = 'http://127.0.0.1:8000'
-$wsUrl = 'ws://127.0.0.1:8000'
+$apiUrl = 'http://127.0.0.1:18001'
+$wsUrl = 'ws://127.0.0.1:18001'
 
 if (-not (Test-Path $frontendDir)) {
     throw "Frontend directory not found: $frontendDir"

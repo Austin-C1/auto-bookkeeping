@@ -11,7 +11,6 @@ import {
   MenuOutlined,
   MessageOutlined,
   ReconciliationOutlined,
-  UnorderedListOutlined,
   UserAddOutlined,
 } from '@ant-design/icons'
 import { useMediaQuery } from 'react-responsive'
@@ -28,25 +27,32 @@ const menuItems: MenuProps['items'] = [
   { key: '/bookkeeping/rolling', icon: <DatabaseOutlined />, label: '滚球工作台' },
   { key: '/bookkeeping/crown/accounts', icon: <UserAddOutlined />, label: '皇冠账号管理' },
   { key: '/bookkeeping/whatsapp/groups', icon: <MessageOutlined />, label: 'WhatsApp 群配置' },
+  { key: '/bookkeeping/telegram/groups', icon: <MessageOutlined />, label: 'Telegram 群配置' },
   { type: 'divider' },
-  { key: '/bookkeeping/crown/wagers', icon: <DatabaseOutlined />, label: '皇冠投注记录' },
-  { key: '/bookkeeping/whatsapp/orders', icon: <UnorderedListOutlined />, label: 'WhatsApp 订单中心' },
-  { key: '/bookkeeping/reconciliation', icon: <ReconciliationOutlined />, label: '对账中心' },
+  { key: '/bookkeeping/crown/wagers', icon: <DatabaseOutlined />, label: '皇冠投注中心' },
+  { key: '/bookkeeping/prematch/reconciliation', icon: <ReconciliationOutlined />, label: '赛前对账中心' },
+  { key: '/bookkeeping/rolling/reconciliation', icon: <ReconciliationOutlined />, label: '滚球对账中心' },
   { key: '/bookkeeping/excel', icon: <FileExcelOutlined />, label: '报表中心' },
   { type: 'divider' },
   { key: 'logout', icon: <LogoutOutlined />, label: '退出登录' },
 ]
 
 const pageKeys = [
-  '/bookkeeping/rolling',
+  '/bookkeeping/rolling/reconciliation',
+  '/bookkeeping/prematch/reconciliation',
   '/bookkeeping/crown/accounts',
   '/bookkeeping/whatsapp/groups',
+  '/bookkeeping/telegram/groups',
   '/bookkeeping/crown/wagers',
-  '/bookkeeping/whatsapp/orders',
-  '/bookkeeping/reconciliation',
+  '/bookkeeping/rolling',
   '/bookkeeping/excel',
   '/bookkeeping',
 ]
+
+const legacyPageKeys: Record<string, string> = {
+  '/bookkeeping/whatsapp/orders': '/bookkeeping/prematch/reconciliation',
+  '/bookkeeping/reconciliation': '/bookkeeping/rolling/reconciliation',
+}
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate()
@@ -56,7 +62,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const selectedKeys = useMemo(() => {
     const pathname = location.pathname.replace(/\/$/, '') || '/bookkeeping'
-    const selected = pageKeys.find((key) => pathname === key || pathname.startsWith(`${key}/`))
+    const aliasedPathname = legacyPageKeys[pathname] || pathname
+    const selected = pageKeys.find((key) => aliasedPathname === key || aliasedPathname.startsWith(`${key}/`))
     return [selected || '/bookkeeping']
   }, [location.pathname])
 

@@ -30,8 +30,14 @@ interface BookkeepingCrownWagerRepository : JpaRepository<BookkeepingCrownWager,
 @Repository
 interface BookkeepingWhatsappGroupRepository : JpaRepository<BookkeepingWhatsappGroup, Long> {
     fun findByGroupKey(groupKey: String): BookkeepingWhatsappGroup?
+    fun findByGroupKeyAndSourceType(groupKey: String, sourceType: String): BookkeepingWhatsappGroup?
     fun findByEnabledOrderByDisplayNameAsc(enabled: Boolean): List<BookkeepingWhatsappGroup>
+    fun findByEnabledAndSourceTypeOrderByDisplayNameAsc(
+        enabled: Boolean,
+        sourceType: String
+    ): List<BookkeepingWhatsappGroup>
     fun findAllByOrderByDisplayNameAsc(): List<BookkeepingWhatsappGroup>
+    fun findAllBySourceTypeOrderByDisplayNameAsc(sourceType: String): List<BookkeepingWhatsappGroup>
 }
 
 @Repository

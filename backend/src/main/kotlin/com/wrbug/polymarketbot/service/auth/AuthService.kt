@@ -28,13 +28,13 @@ class AuthService(
     @Value("\${admin.reset-password.key}")
     private lateinit var resetPasswordKey: String
 
-    @Value("\${odds.monitor.package.default-admin.enabled:false}")
+    @Value("\${auto.bookkeeping.package.default-admin.enabled:\${odds.monitor.package.default-admin.enabled:false}}")
     private var packagedDefaultAdminEnabled: Boolean = false
 
-    @Value("\${odds.monitor.package.default-admin.username:123456}")
+    @Value("\${auto.bookkeeping.package.default-admin.username:\${odds.monitor.package.default-admin.username:123456}}")
     private lateinit var packagedDefaultAdminUsername: String
 
-    @Value("\${odds.monitor.package.default-admin.password:123456}")
+    @Value("\${auto.bookkeeping.package.default-admin.password:\${odds.monitor.package.default-admin.password:123456}}")
     private lateinit var packagedDefaultAdminPassword: String
     
     fun login(username: String, password: String, ipAddress: String): Result<LoginResponse> {

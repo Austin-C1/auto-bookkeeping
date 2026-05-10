@@ -8,6 +8,7 @@ $rootDir = (Resolve-Path (Split-Path -Parent $MyInvocation.MyCommand.Path)).Path
 $desktopDir = [Environment]::GetFolderPath('Desktop')
 $backendDir = Join-Path $rootDir 'backend'
 $frontendDir = Join-Path $rootDir 'frontend'
+$frontendBuildScript = Join-Path $rootDir 'build-blackcat-desktop-frontend.ps1'
 $gradleCmd = Join-Path $backendDir 'gradlew.bat'
 $javaHome = Join-Path $rootDir '.tools\jdk-17.0.18+8'
 $frontendPackageJsonPath = Join-Path $frontendDir 'package.json'
@@ -65,15 +66,9 @@ foreach ($path in @($packageDir, $zipPath)) {
     }
 }
 
-Push-Location $frontendDir
-try {
-    & npm run build
-    if ($LASTEXITCODE -ne 0) {
-        throw "Frontend build failed with exit code $LASTEXITCODE."
-    }
-}
-finally {
-    Pop-Location
+& $frontendBuildScript
+if ($LASTEXITCODE -ne 0) {
+    throw "Frontend desktop build failed with exit code $LASTEXITCODE."
 }
 
 if (-not (Test-Path $javaHome)) {
@@ -102,9 +97,16 @@ New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 Copy-RequiredFile -Source $jarPath -Destination (Join-Path $packageDir "backend\build\libs\auto-bookkeeping-backend-$version.jar")
 Copy-RequiredFile -Source (Join-Path $rootDir 'launch-blackcat.ps1') -Destination (Join-Path $packageDir 'launch-blackcat.ps1')
 Copy-RequiredFile -Source (Join-Path $rootDir 'launch-blackcat.cmd') -Destination (Join-Path $packageDir 'launch-blackcat.cmd')
+Copy-RequiredFile -Source (Join-Path $rootDir 'open-blackcat-frontend.ps1') -Destination (Join-Path $packageDir 'open-blackcat-frontend.ps1')
+Copy-RequiredFile -Source (Join-Path $rootDir 'open-blackcat-frontend.cmd') -Destination (Join-Path $packageDir 'open-blackcat-frontend.cmd')
 Copy-RequiredFile -Source (Join-Path $rootDir 'start-blackcat-backend.ps1') -Destination (Join-Path $packageDir 'start-blackcat-backend.ps1')
 Copy-RequiredFile -Source (Join-Path $rootDir 'start-blackcat-backend.cmd') -Destination (Join-Path $packageDir 'start-blackcat-backend.cmd')
+Copy-RequiredFile -Source (Join-Path $rootDir 'start-telegram-bridge.ps1') -Destination (Join-Path $packageDir 'start-telegram-bridge.ps1')
+Copy-RequiredFile -Source (Join-Path $rootDir 'start-telegram-bridge.cmd') -Destination (Join-Path $packageDir 'start-telegram-bridge.cmd')
 Copy-RequiredFile -Source (Join-Path $rootDir 'scripts\serve-blackcat-frontend.ps1') -Destination (Join-Path $packageDir 'scripts\serve-blackcat-frontend.ps1')
+Copy-RequiredFile -Source (Join-Path $rootDir 'telegram-bridge\package.json') -Destination (Join-Path $packageDir 'telegram-bridge\package.json')
+Copy-RequiredFile -Source (Join-Path $rootDir 'telegram-bridge\package-lock.json') -Destination (Join-Path $packageDir 'telegram-bridge\package-lock.json')
+Copy-RequiredFile -Source (Join-Path $rootDir 'telegram-bridge\server.mjs') -Destination (Join-Path $packageDir 'telegram-bridge\server.mjs')
 
 New-Item -ItemType Directory -Path (Join-Path $packageDir 'frontend') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $frontendDir 'dist') -Destination (Join-Path $packageDir 'frontend') -Recurse -Force

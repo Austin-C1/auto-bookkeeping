@@ -2,7 +2,7 @@ param(
     [string]$Root = (Join-Path (Resolve-Path (Join-Path $PSScriptRoot '..')).Path 'frontend\dist'),
     [string]$ListenHost = '127.0.0.1',
     [int]$Port = 18880,
-    [string]$BackendUrl = 'http://127.0.0.1:8000'
+    [string]$BackendUrl = 'http://127.0.0.1:18001'
 )
 
 $ErrorActionPreference = 'Stop'

@@ -64,6 +64,14 @@ function Write-Utf8File {
     [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
 }
 
+function Read-Utf8File {
+    param(
+        [string]$Path
+    )
+
+    return [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
+}
+
 function Write-OneClickLauncher {
     param(
         [string]$Path
@@ -108,7 +116,7 @@ function Render-TemplateFile {
         throw "Template file not found: $TemplatePath"
     }
 
-    $content = Get-Content -Path $TemplatePath -Raw
+    $content = Read-Utf8File -Path $TemplatePath
     foreach ($key in $Variables.Keys) {
         $content = $content.Replace($key, $Variables[$key])
     }
@@ -169,9 +177,17 @@ New-Item -ItemType Directory -Path (Join-Path $packageDir '.tools') -Force | Out
 Copy-Item -LiteralPath $jarPath -Destination (Join-Path $packageDir 'backend\build\libs') -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'launch-blackcat.ps1') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'launch-blackcat.cmd') -Destination $packageDir -Force
+Copy-Item -LiteralPath (Join-Path $rootDir 'open-blackcat-frontend.ps1') -Destination $packageDir -Force
+Copy-Item -LiteralPath (Join-Path $rootDir 'open-blackcat-frontend.cmd') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'start-blackcat-backend.ps1') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'start-blackcat-backend.cmd') -Destination $packageDir -Force
+Copy-Item -LiteralPath (Join-Path $rootDir 'start-telegram-bridge.ps1') -Destination $packageDir -Force
+Copy-Item -LiteralPath (Join-Path $rootDir 'start-telegram-bridge.cmd') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'scripts\serve-blackcat-frontend.ps1') -Destination (Join-Path $packageDir 'scripts') -Force
+New-Item -ItemType Directory -Path (Join-Path $packageDir 'telegram-bridge') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $rootDir 'telegram-bridge\package.json') -Destination (Join-Path $packageDir 'telegram-bridge') -Force
+Copy-Item -LiteralPath (Join-Path $rootDir 'telegram-bridge\package-lock.json') -Destination (Join-Path $packageDir 'telegram-bridge') -Force
+Copy-Item -LiteralPath (Join-Path $rootDir 'telegram-bridge\server.mjs') -Destination (Join-Path $packageDir 'telegram-bridge') -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'frontend\dist') -Destination (Join-Path $packageDir 'frontend') -Recurse -Force
 Copy-Item -LiteralPath $javaHome -Destination (Join-Path $packageDir '.tools') -Recurse -Force
 Write-OneClickLauncher -Path (Join-Path $packageDir $oneClickLauncherName)

@@ -80,6 +80,46 @@ class BookkeepingController(
         ResponseEntity.ok(ApiResponse.success(bookkeepingService.importWhatsappOrders(request)))
     }.getOrElse { ResponseEntity.ok(ApiResponse.error(ErrorCode.PARAM_ERROR, it.message)) }
 
+    @PostMapping("/telegram/groups/list")
+    fun listTelegramGroups(): ResponseEntity<ApiResponse<List<BookkeepingTelegramGroupDto>>> =
+        ResponseEntity.ok(ApiResponse.success(bookkeepingService.listTelegramGroups()))
+
+    @PostMapping("/telegram/groups/save")
+    fun saveTelegramGroup(@RequestBody request: SaveBookkeepingTelegramGroupRequest):
+        ResponseEntity<ApiResponse<BookkeepingTelegramGroupDto>> = runCatching {
+        ResponseEntity.ok(ApiResponse.success(bookkeepingService.saveTelegramGroup(request)))
+    }.getOrElse { ResponseEntity.ok(ApiResponse.error(ErrorCode.PARAM_ERROR, it.message)) }
+
+    @PostMapping("/telegram/api-config")
+    fun telegramApiConfig(): ResponseEntity<ApiResponse<BookkeepingTelegramApiConfigDto>> =
+        ResponseEntity.ok(ApiResponse.success(bookkeepingService.telegramApiConfig()))
+
+    @PostMapping("/telegram/api-config/save")
+    fun saveTelegramApiConfig(@RequestBody request: SaveBookkeepingTelegramApiConfigRequest):
+        ResponseEntity<ApiResponse<BookkeepingTelegramApiConfigDto>> = runCatching {
+        ResponseEntity.ok(ApiResponse.success(bookkeepingService.saveTelegramApiConfig(request)))
+    }.getOrElse { ResponseEntity.ok(ApiResponse.error(ErrorCode.PARAM_ERROR, it.message)) }
+
+    @PostMapping("/telegram/chats/sync")
+    fun syncTelegramChats(): ResponseEntity<ApiResponse<BookkeepingTelegramChatSyncResultDto>> =
+        ResponseEntity.ok(ApiResponse.success(bookkeepingService.syncTelegramChats()))
+
+    @PostMapping("/telegram/status")
+    fun telegramStatus(): ResponseEntity<ApiResponse<BookkeepingTelegramStatusDto>> =
+        ResponseEntity.ok(ApiResponse.success(bookkeepingService.telegramStatus()))
+
+    @PostMapping("/telegram/scan")
+    fun scanTelegramMessages(@RequestBody request: ScanBookkeepingTelegramMessagesRequest):
+        ResponseEntity<ApiResponse<BookkeepingTelegramMessageScanResultDto>> = runCatching {
+        ResponseEntity.ok(ApiResponse.success(bookkeepingService.scanTelegramMessages(request)))
+    }.getOrElse { ResponseEntity.ok(ApiResponse.error(ErrorCode.PARAM_ERROR, it.message)) }
+
+    @PostMapping("/score-results/titan007/fetch")
+    fun fetchTitan007ScoreResults(@RequestBody request: FetchBookkeepingTitan007ScoresRequest):
+        ResponseEntity<ApiResponse<BookkeepingTitan007ScoreFetchResultDto>> = runCatching {
+        ResponseEntity.ok(ApiResponse.success(bookkeepingService.fetchTitan007ScoreResults(request)))
+    }.getOrElse { ResponseEntity.ok(ApiResponse.error(ErrorCode.PARAM_ERROR, it.message)) }
+
     @PostMapping("/tasks/run")
     fun runTask(@RequestBody request: RunBookkeepingTaskRequest):
         ResponseEntity<ApiResponse<BookkeepingTaskDto>> = runCatching {

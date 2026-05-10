@@ -9,6 +9,7 @@ import com.wrbug.polymarketbot.dto.BookkeepingWhatsappOrderDto
 import org.apache.poi.ss.usermodel.CellStyle
 import org.apache.poi.ss.usermodel.FillPatternType
 import org.apache.poi.ss.usermodel.IndexedColors
+import org.apache.poi.ss.util.WorkbookUtil
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.springframework.stereotype.Component
 import java.math.BigDecimal
@@ -16,7 +17,9 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 @Component
-class BookkeepingExcelReportWriter {
+class BookkeepingExcelReportWriter(
+    private val scoreResultReader: BookkeepingTitan007ScoreResultReader = BookkeepingTitan007ScoreResultReader()
+) {
     fun writeDailyReport(
         businessDate: String,
         taskId: Long,
@@ -37,25 +40,24 @@ class BookkeepingExcelReportWriter {
 
         XSSFWorkbook().use { workbook ->
             val headerStyle = workbook.createHeaderStyle()
+            val scoreLookup = scoreResultReader.loadScoreLookup(businessDate)
             when (normalizedReportType) {
-                "crown_wagers" -> workbook.addCrownWagersSheet("皇冠注单", wagers, headerStyle)
-                "downstream_before_rebate" -> workbook.addDownstreamOrdersBeforeRebateSheet(
-                    "下游群注单（退水前）",
+                "crown_wagers" -> workbook.addCrownWagersSheet("皇冠注单", wagers, headerStyle, scoreLookup)
+                "downstream_orders" -> workbook.addDownstreamOrdersGroupSheets(
+                    "下游群注单",
                     whatsappOrders.filter { it.direction == "downstream" },
                     whatsappGroups,
-                    headerStyle
+                    headerStyle,
+                    scoreLookup,
+                    groupFilter = { it.role == "downstream" }
                 )
-                "downstream_after_rebate" -> workbook.addDownstreamOrdersAfterRebateSheet(
-                    "下游群注单（退水后）",
-                    whatsappOrders.filter { it.direction == "downstream" },
-                    whatsappGroups,
-                    headerStyle
-                )
-                "upstream_orders" -> workbook.addPrematchBillSheet(
+                "upstream_orders" -> workbook.addPrematchGroupBillSheets(
                     "上游群注单",
                     whatsappOrders.filter { it.direction == "upstream" },
                     whatsappGroups,
-                    headerStyle
+                    headerStyle,
+                    scoreLookup,
+                    groupFilter = { it.role == "upstream" }
                 ) { order, _ ->
                     calculateUpstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
                 }
@@ -63,27 +65,50 @@ class BookkeepingExcelReportWriter {
                     "公司跟单表",
                     whatsappOrders.filter { it.direction == "company_follow" },
                     whatsappGroups,
-                    headerStyle
+                    headerStyle,
+                    scoreLookup
                 ) { order, _ ->
                     calculateDownstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
                 }
                 "prematch_settlement" -> workbook.addSettlementSheet("赛前结算表", businessDate, summary, headerStyle)
-                "prematch_profit" -> workbook.addCompanyProfitSheet(
-                    "公司盈亏表",
+                "prematch_profit" -> workbook.addPrematchCompanyProfitWorkbookSheets(
                     businessDate,
                     summary,
                     whatsappOrders.filter { it.direction in setOf("upstream", "downstream", "company_follow") },
                     whatsappGroups,
-                    headerStyle
+                    headerStyle,
+                    scoreLookup
                 )
                 "rolling_group_orders" -> workbook.addPrematchBillSheet(
                     "滚球群注单",
-                    whatsappOrders.filter { it.direction == "rolling" },
+                    whatsappOrders.filter { it.isRollingDirection() },
                     whatsappGroups,
-                    headerStyle
+                    headerStyle,
+                    scoreLookup
                 ) { order, _ ->
                     calculateDownstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
                 }
+                "rolling_upstream_orders" -> workbook.addPrematchGroupBillSheets(
+                    "滚球上游各群表格",
+                    whatsappOrders.filter { it.isRollingUpstreamDirection() },
+                    whatsappGroups,
+                    headerStyle,
+                    scoreLookup,
+                    groupFilter = { it.role == "rolling_upstream" }
+                ) { order, _ ->
+                    calculateUpstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
+                }
+                "rolling_downstream_orders" -> workbook.addPrematchGroupBillSheets(
+                    "滚球下游各群表格",
+                    whatsappOrders.filter { it.isRollingDownstreamDirection() },
+                    whatsappGroups,
+                    headerStyle,
+                    scoreLookup,
+                    groupFilter = { it.role == "rolling" || it.role == "rolling_downstream" }
+                ) { order, _ ->
+                    calculateDownstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
+                }
+                "rolling_water" -> workbook.addSettlementSheet("盈亏水表格", businessDate, summary, headerStyle)
                 "rolling_reconcile" -> workbook.addReconciliationSheet("滚球对账表", reconciliationResults, headerStyle)
                 "rolling_profit" -> workbook.addRollingProfitSheet("滚球盈亏表", businessDate, summary, headerStyle)
                 "prematch_excel" -> workbook.addPrematchWorkbookSheets(
@@ -92,7 +117,8 @@ class BookkeepingExcelReportWriter {
                     whatsappOrders,
                     whatsappGroups,
                     reconciliationResults,
-                    headerStyle
+                    headerStyle,
+                    scoreLookup
                 )
                 "rolling_excel" -> workbook.addRollingWorkbookSheets(
                     businessDate,
@@ -101,7 +127,8 @@ class BookkeepingExcelReportWriter {
                     whatsappOrders,
                     whatsappGroups,
                     reconciliationResults,
-                    headerStyle
+                    headerStyle,
+                    scoreLookup
                 )
                 else -> workbook.addDailyWorkbookSheets(
                     businessDate,
@@ -110,7 +137,8 @@ class BookkeepingExcelReportWriter {
                     wagers,
                     whatsappOrders,
                     reconciliationResults,
-                    headerStyle
+                    headerStyle,
+                    scoreLookup
                 )
             }
 
@@ -126,33 +154,31 @@ class BookkeepingExcelReportWriter {
         whatsappOrders: List<BookkeepingWhatsappOrderDto>,
         whatsappGroups: List<BookkeepingWhatsappGroupDto>,
         reconciliationResults: List<BookkeepingReconciliationResultDto>,
-        headerStyle: CellStyle
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup
     ) {
         addPrematchBillSheet(
             "上游群注单",
             whatsappOrders.filter { it.direction == "upstream" },
             whatsappGroups,
-            headerStyle
+            headerStyle,
+            scoreLookup
         ) { order, _ ->
             calculateUpstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
         }
-        addDownstreamOrdersBeforeRebateSheet(
-            "下游群注单（退水前）",
+        addDownstreamOrdersSheet(
+            "下游群注单",
             whatsappOrders.filter { it.direction == "downstream" },
             whatsappGroups,
-            headerStyle
-        )
-        addDownstreamOrdersAfterRebateSheet(
-            "下游群注单（退水后）",
-            whatsappOrders.filter { it.direction == "downstream" },
-            whatsappGroups,
-            headerStyle
+            headerStyle,
+            scoreLookup
         )
         addPrematchBillSheet(
             "公司跟单表",
             whatsappOrders.filter { it.direction == "company_follow" },
             whatsappGroups,
-            headerStyle
+            headerStyle,
+            scoreLookup
         ) { order, _ ->
             calculateDownstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
         }
@@ -163,7 +189,8 @@ class BookkeepingExcelReportWriter {
             summary,
             whatsappOrders.filter { it.direction in setOf("upstream", "downstream", "company_follow") },
             whatsappGroups,
-            headerStyle
+            headerStyle,
+            scoreLookup
         )
         addReconciliationSheet("异常订单", reconciliationResults.filter { it.issueType != "matched" }, headerStyle)
     }
@@ -175,20 +202,42 @@ class BookkeepingExcelReportWriter {
         whatsappOrders: List<BookkeepingWhatsappOrderDto>,
         whatsappGroups: List<BookkeepingWhatsappGroupDto>,
         reconciliationResults: List<BookkeepingReconciliationResultDto>,
-        headerStyle: CellStyle
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup
     ) {
-        addCrownWagersSheet("皇冠注单", wagers, headerStyle)
+        addCrownWagersSheet("皇冠注单", wagers, headerStyle, scoreLookup)
         addPrematchBillSheet(
             "滚球群注单",
-            whatsappOrders.filter { it.direction == "rolling" },
+            whatsappOrders.filter { it.isRollingDirection() },
             whatsappGroups,
-            headerStyle
+            headerStyle,
+            scoreLookup
         ) { order, _ ->
             calculateDownstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
         }
         addReconciliationSheet("滚球对账表", reconciliationResults, headerStyle)
         addRollingProfitSheet("滚球盈亏表", businessDate, summary, headerStyle)
         addReconciliationSheet("滚球异常表", reconciliationResults.filter { it.issueType != "matched" }, headerStyle)
+    }
+
+    private fun XSSFWorkbook.addPrematchCompanyProfitWorkbookSheets(
+        businessDate: String,
+        summary: BookkeepingDailySummaryDto,
+        whatsappOrders: List<BookkeepingWhatsappOrderDto>,
+        whatsappGroups: List<BookkeepingWhatsappGroupDto>,
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup
+    ) {
+        addCompanyProfitSheet(
+            "公司盈亏表",
+            businessDate,
+            summary,
+            whatsappOrders,
+            whatsappGroups,
+            headerStyle,
+            scoreLookup
+        )
+        addSettlementSheet("盈亏水表格", businessDate, summary, headerStyle)
     }
 
     private fun XSSFWorkbook.addDailyWorkbookSheets(
@@ -198,7 +247,8 @@ class BookkeepingExcelReportWriter {
         wagers: List<BookkeepingCrownWagerDto>,
         whatsappOrders: List<BookkeepingWhatsappOrderDto>,
         reconciliationResults: List<BookkeepingReconciliationResultDto>,
-        headerStyle: CellStyle
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup
     ) {
         addSheet(
             "Crown账号池",
@@ -208,12 +258,12 @@ class BookkeepingExcelReportWriter {
             },
             headerStyle
         )
-        addCrownWagersSheet("皇冠注单", wagers, headerStyle)
-        addPrematchBillSheet("上游群注单", whatsappOrders.filter { it.direction == "upstream" }, emptyList(), headerStyle) { order, _ ->
+        addCrownWagersSheet("皇冠注单", wagers, headerStyle, scoreLookup)
+        addPrematchBillSheet("上游群注单", whatsappOrders.filter { it.direction == "upstream" }, emptyList(), headerStyle, scoreLookup) { order, _ ->
             calculateUpstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
         }
-        addDownstreamOrdersBeforeRebateSheet("下游群注单", whatsappOrders.filter { it.direction == "downstream" }, emptyList(), headerStyle)
-        addPrematchBillSheet("公司跟单表", whatsappOrders.filter { it.direction == "company_follow" }, emptyList(), headerStyle) { order, _ ->
+        addDownstreamOrdersSheet("下游群注单", whatsappOrders.filter { it.direction == "downstream" }, emptyList(), headerStyle, scoreLookup)
+        addPrematchBillSheet("公司跟单表", whatsappOrders.filter { it.direction == "company_follow" }, emptyList(), headerStyle, scoreLookup) { order, _ ->
             calculateDownstreamSettlement(order.amount ?: BigDecimal.ZERO, order.oddsValue ?: BigDecimal.ZERO, order.settlementResult)
         }
         addReconciliationSheet("对账结果", reconciliationResults, headerStyle)
@@ -223,14 +273,16 @@ class BookkeepingExcelReportWriter {
             summary,
             whatsappOrders.filter { it.direction in setOf("upstream", "downstream", "company_follow") },
             emptyList(),
-            headerStyle
+            headerStyle,
+            scoreLookup
         )
     }
 
     private fun XSSFWorkbook.addCrownWagersSheet(
         name: String,
         wagers: List<BookkeepingCrownWagerDto>,
-        headerStyle: CellStyle
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup
     ) {
         addSheet(
             name,
@@ -242,8 +294,9 @@ class BookkeepingExcelReportWriter {
                     wager.leagueName,
                     crownMatchName(wager),
                     crownMarketAndOdds(wager),
-                    "",
+                    actualScoreText(wager, scoreLookup),
                     wager.stakeAmount,
+                    wagerOutcomeText(wager),
                     wager.winLossAmount
                 )
             },
@@ -264,42 +317,94 @@ class BookkeepingExcelReportWriter {
         )
     }
 
-    private fun XSSFWorkbook.addDownstreamOrdersBeforeRebateSheet(
+    private fun XSSFWorkbook.addDownstreamOrdersSheet(
         name: String,
         orders: List<BookkeepingWhatsappOrderDto>,
         groups: List<BookkeepingWhatsappGroupDto>,
-        headerStyle: CellStyle
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup
     ) {
-        addPrematchBillSheet(name, orders, groups, headerStyle) { order, _ ->
+        addPrematchBillSheet(name, orders, groups, headerStyle, scoreLookup) { order, _ ->
                 val stake = order.amount ?: BigDecimal.ZERO
                 val odds = order.oddsValue ?: BigDecimal.ZERO
                 calculateDownstreamSettlement(stake, odds, order.settlementResult)
         }
     }
 
-    private fun XSSFWorkbook.addDownstreamOrdersAfterRebateSheet(
+    private fun XSSFWorkbook.addDownstreamOrdersGroupSheets(
         name: String,
         orders: List<BookkeepingWhatsappOrderDto>,
         groups: List<BookkeepingWhatsappGroupDto>,
-        headerStyle: CellStyle
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup,
+        groupFilter: (BookkeepingWhatsappGroupDto) -> Boolean
     ) {
-        val groupById = groups.mapNotNull { group -> group.id?.let { it to group } }.toMap()
-        val adjustedOddsByOrderKey = orders.associate { order ->
-            val odds = order.oddsValue ?: BigDecimal.ZERO
-            val rebatePoints = groupById[order.groupId]?.rebatePoints ?: BigDecimal.ZERO
-            order.orderKey to odds.subtract(rebatePoints.movePointLeft(2)).nonNegative()
-        }
-        addPrematchBillSheet(
+        addPrematchGroupBillSheets(
             name,
             orders,
             groups,
             headerStyle,
-            oddsResolver = { order -> adjustedOddsByOrderKey[order.orderKey] ?: order.oddsValue }
+            scoreLookup,
+            groupFilter = groupFilter
         ) { order, _ ->
             val stake = order.amount ?: BigDecimal.ZERO
-            val adjustedOdds = adjustedOddsByOrderKey[order.orderKey] ?: BigDecimal.ZERO
-            calculateDownstreamSettlement(stake, adjustedOdds, order.settlementResult)
+            val odds = order.oddsValue ?: BigDecimal.ZERO
+            calculateDownstreamSettlement(stake, odds, order.settlementResult)
         }
+    }
+
+    private fun XSSFWorkbook.addPrematchGroupBillSheets(
+        name: String,
+        orders: List<BookkeepingWhatsappOrderDto>,
+        groups: List<BookkeepingWhatsappGroupDto>,
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup,
+        groupFilter: (BookkeepingWhatsappGroupDto) -> Boolean,
+        oddsResolver: (BookkeepingWhatsappOrderDto) -> BigDecimal? = { it.oddsValue },
+        settlementResolver: (BookkeepingWhatsappOrderDto, Map<Long, BookkeepingWhatsappGroupDto>) -> BigDecimal
+    ) {
+        val orderGroupIds = orders.mapNotNull { it.groupId }.toSet()
+        val groupedOrders = orders.groupBy { it.groupId }
+        val relevantGroups = groups.filter { group ->
+            val groupId = group.id
+            groupId != null && (groupFilter(group) || groupId in orderGroupIds)
+        }
+        if (relevantGroups.isEmpty() && groupedOrders.size <= 1) {
+            addPrematchBillSheet(name, orders, groups, headerStyle, scoreLookup, oddsResolver, settlementResolver)
+            return
+        }
+
+        val usedNames = mutableSetOf<String>()
+        relevantGroups.forEach { group ->
+            addPrematchBillSheet(
+                uniqueSheetName(group.displayName.ifBlank { group.chatName.ifBlank { group.groupKey.ifBlank { name } } }, usedNames),
+                groupedOrders[group.id].orEmpty(),
+                groups,
+                headerStyle,
+                scoreLookup,
+                oddsResolver,
+                settlementResolver
+            )
+        }
+
+        val knownGroupIds = relevantGroups.mapNotNull { it.id }.toSet()
+        orders
+            .filter { order -> order.groupId?.let { it in knownGroupIds } != true }
+            .groupBy { it.groupId }
+            .forEach { (groupId, groupOrders) ->
+                val groupName = groupId?.let { groups.firstOrNull { group -> group.id == it }?.displayName }
+                    ?.takeIf { it.isNotBlank() }
+                    ?: if (groupId == null) "$name-无群" else "$name-$groupId"
+                addPrematchBillSheet(
+                    uniqueSheetName(groupName, usedNames),
+                    groupOrders,
+                    groups,
+                    headerStyle,
+                    scoreLookup,
+                    oddsResolver,
+                    settlementResolver
+                )
+            }
     }
 
     private fun XSSFWorkbook.addPrematchBillSheet(
@@ -307,6 +412,7 @@ class BookkeepingExcelReportWriter {
         orders: List<BookkeepingWhatsappOrderDto>,
         groups: List<BookkeepingWhatsappGroupDto>,
         headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup,
         oddsResolver: (BookkeepingWhatsappOrderDto) -> BigDecimal? = { it.oddsValue },
         settlementResolver: (BookkeepingWhatsappOrderDto, Map<Long, BookkeepingWhatsappGroupDto>) -> BigDecimal
     ) {
@@ -322,8 +428,9 @@ class BookkeepingExcelReportWriter {
                     order.leagueName,
                     order.matchName,
                     betMarketAndOdds(order.marketText, odds),
-                    actualScoreText(order),
+                    actualScoreText(order, scoreLookup),
                     order.amount,
+                    order.settlementResult.orEmpty(),
                     settlementResolver(order, groupById)
                 )
             },
@@ -337,18 +444,17 @@ class BookkeepingExcelReportWriter {
         summary: BookkeepingDailySummaryDto,
         orders: List<BookkeepingWhatsappOrderDto>,
         groups: List<BookkeepingWhatsappGroupDto>,
-        headerStyle: CellStyle
+        headerStyle: CellStyle,
+        scoreLookup: BookkeepingTitan007ScoreLookup
     ) {
         val groupById = groups.mapNotNull { group -> group.id?.let { it to group } }.toMap()
         val rows = orders.mapIndexed { index, order ->
             val stake = order.amount ?: BigDecimal.ZERO
             val odds = order.oddsValue ?: BigDecimal.ZERO
-            val rebatePoints = groupById[order.groupId]?.rebatePoints ?: BigDecimal.ZERO
             val settlement = if (order.direction == "upstream") {
                 calculateUpstreamSettlement(stake, odds, order.settlementResult)
             } else {
-                val adjustedOdds = odds.subtract(rebatePoints.movePointLeft(2)).nonNegative()
-                calculateDownstreamSettlement(stake, adjustedOdds, order.settlementResult)
+                calculateDownstreamSettlement(stake, odds, order.settlementResult)
             }
             listOf(
                 if (index == 0) order.businessDate else "",
@@ -356,14 +462,15 @@ class BookkeepingExcelReportWriter {
                 order.leagueName,
                 order.matchName,
                 betMarketAndOdds(order.marketText, order.oddsValue),
-                actualScoreText(order),
+                actualScoreText(order, scoreLookup),
                 order.amount,
+                order.settlementResult.orEmpty(),
                 settlement,
                 orderSourceText(order, groupById)
             )
         } + listOf(
-            listOf("", "", "", "", "", "", "盈亏水金额", summary.waterLossAmount, ""),
-            listOf(businessDate, "", "", "", "", "", "日盈亏", summary.companyNetProfit, "")
+            listOf("", "", "", "", "", "", "", "盈亏水金额", summary.waterLossAmount, ""),
+            listOf(businessDate, "", "", "", "", "", "", "日盈亏", summary.companyNetProfit, "")
         )
 
         addSheet(
@@ -499,7 +606,23 @@ class BookkeepingExcelReportWriter {
             }
         }
 
-        headers.indices.forEach { sheet.autoSizeColumn(it) }
+        headers.forEachIndexed { index, header ->
+            sheet.setColumnWidth(index, columnWidthForHeader(header) * EXCEL_COLUMN_WIDTH_UNIT)
+        }
+    }
+
+    private fun XSSFWorkbook.uniqueSheetName(rawName: String, usedNames: MutableSet<String>): String {
+        val safeName = WorkbookUtil.createSafeSheetName(rawName.ifBlank { "表格" }).ifBlank { "表格" }
+        val baseName = safeName.take(MAX_EXCEL_SHEET_NAME_LENGTH)
+        var candidate = baseName
+        var index = 2
+        while (candidate in usedNames || getSheet(candidate) != null) {
+            val suffix = "($index)"
+            candidate = baseName.take(MAX_EXCEL_SHEET_NAME_LENGTH - suffix.length) + suffix
+            index += 1
+        }
+        usedNames.add(candidate)
+        return candidate
     }
 
     private fun BookkeepingWhatsappOrderDto.orderRow(): List<Any?> = listOf(
@@ -517,7 +640,14 @@ class BookkeepingExcelReportWriter {
     )
 
     private fun accountBillHeaders(): List<String> =
-        listOf("日期", "序号", "联赛类型", "比赛队伍", "投注盘口及赔率", "实际比分", "投注额度", "盈亏情况")
+        listOf("日期", "序号", "联赛类型", "比赛队伍", "投注盘口及赔率", "实际比分", "投注额度", "赛果", "盈亏")
+
+    private fun columnWidthForHeader(header: String): Int = when (header) {
+        "联赛类型" -> 25
+        "比赛队伍" -> 25
+        "投注盘口及赔率" -> 30
+        else -> 20
+    }
 
     private fun betMarketAndOdds(marketText: String?, odds: BigDecimal?): String {
         val market = marketText?.trim().orEmpty()
@@ -541,14 +671,18 @@ class BookkeepingExcelReportWriter {
         return betMarketAndOdds(market, wager.oddsValue)
     }
 
-    private fun actualScoreText(order: BookkeepingWhatsappOrderDto): String {
-        return Regex("(?:实际比分|完场比分|全场比分)\\s*[:：]?\\s*(\\d+\\s*[-:：]\\s*\\d+)")
-            .find(order.rawMessage)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.replace(Regex("\\s+"), "")
-            .orEmpty()
+    private fun wagerOutcomeText(wager: BookkeepingCrownWagerDto): String = when {
+        wager.winLossAmount > BigDecimal.ZERO -> "赢"
+        wager.winLossAmount < BigDecimal.ZERO -> "输"
+        wager.status.trim().lowercase() in SETTLED_CROWN_STATUSES -> "走水"
+        else -> ""
     }
+
+    private fun actualScoreText(order: BookkeepingWhatsappOrderDto, scoreLookup: BookkeepingTitan007ScoreLookup): String =
+        scoreLookup.actualScore(order.matchName)
+
+    private fun actualScoreText(wager: BookkeepingCrownWagerDto, scoreLookup: BookkeepingTitan007ScoreLookup): String =
+        scoreLookup.actualScore(wager.homeTeam, wager.awayTeam)
 
     private fun orderSourceText(
         order: BookkeepingWhatsappOrderDto,
@@ -559,11 +693,22 @@ class BookkeepingExcelReportWriter {
             "upstream" -> "上游群"
             "downstream" -> "下游群"
             "company_follow" -> "公司跟单"
-            "rolling" -> "滚球群"
+            "rolling", "rolling_downstream" -> "滚球下游"
+            "rolling_upstream" -> "滚球上游"
+            "rolling_company" -> "滚球公司"
             else -> order.direction
         }
         return listOf(direction, sourceGroup).filter { !it.isNullOrBlank() }.joinToString(" - ")
     }
+
+    private fun BookkeepingWhatsappOrderDto.isRollingDirection(): Boolean =
+        direction in setOf("rolling", "rolling_upstream", "rolling_downstream", "rolling_company")
+
+    private fun BookkeepingWhatsappOrderDto.isRollingUpstreamDirection(): Boolean =
+        direction == "rolling_upstream"
+
+    private fun BookkeepingWhatsappOrderDto.isRollingDownstreamDirection(): Boolean =
+        direction in setOf("rolling", "rolling_downstream")
 
     private fun calculateUpstreamSettlement(
         stake: BigDecimal,
@@ -591,22 +736,6 @@ class BookkeepingExcelReportWriter {
         null -> BigDecimal.ZERO
     }
 
-    private fun calculateDownstreamRebateAmount(
-        stake: BigDecimal,
-        rebatePoints: BigDecimal,
-        settlementResult: String?
-    ): BigDecimal {
-        val pointValue = rebatePoints.movePointLeft(2).nonNegative()
-        return when (settlementResult.toSettlementOutcome()) {
-            SettlementOutcome.WIN -> stake.multiply(pointValue)
-            SettlementOutcome.WIN_HALF -> stake.multiply(pointValue).multiply(HALF)
-            SettlementOutcome.PUSH,
-            SettlementOutcome.LOSE_HALF,
-            SettlementOutcome.LOSE,
-            null -> BigDecimal.ZERO
-        }
-    }
-
     private fun String?.toSettlementOutcome(): SettlementOutcome? {
         val text = this?.trim()?.lowercase().orEmpty()
             .replace("-", "_")
@@ -620,9 +749,6 @@ class BookkeepingExcelReportWriter {
             else -> null
         }
     }
-
-    private fun BigDecimal.nonNegative(): BigDecimal =
-        if (compareTo(BigDecimal.ZERO) < 0) BigDecimal.ZERO else this
 
     private fun org.apache.poi.ss.usermodel.Cell.setAnyValue(value: Any?) {
         when (value) {
@@ -647,6 +773,9 @@ class BookkeepingExcelReportWriter {
     }
 
     private companion object {
+        const val MAX_EXCEL_SHEET_NAME_LENGTH: Int = 31
+        const val EXCEL_COLUMN_WIDTH_UNIT: Int = 256
+        val SETTLED_CROWN_STATUSES: Set<String> = setOf("settled", "closed", "completed", "resolved")
         val HALF: BigDecimal = BigDecimal("0.5")
     }
 }

@@ -45,6 +45,7 @@ data class BookkeepingLoginTestResultDto(
 data class BookkeepingWhatsappGroupDto(
     val id: Long?,
     val groupKey: String,
+    val sourceType: String = "whatsapp",
     val sourceChatId: String?,
     val displayName: String,
     val chatName: String,
@@ -111,6 +112,40 @@ data class BookkeepingWhatsappMessageScanResultDto(
     val updatedCount: Int
 )
 
+data class FetchBookkeepingTitan007ScoresRequest(
+    val businessDate: String,
+    val leagueFilter: String? = null,
+    val startTime: String? = null,
+    val endTime: String? = null
+)
+
+data class BookkeepingTitan007ScoreFetchResultDto(
+    val businessDate: String,
+    val fetchedCount: Int,
+    val sourceUrl: String,
+    val savedPath: String
+)
+
+data class BookkeepingTelegramApiConfigDto(
+    val apiId: String = "",
+    val apiHashConfigured: Boolean = false,
+    val sessionConfigured: Boolean = false,
+    val bridgeConfigured: Boolean = false,
+    val message: String = ""
+)
+
+data class SaveBookkeepingTelegramApiConfigRequest(
+    val apiId: String,
+    val apiHash: String? = null
+)
+
+typealias BookkeepingTelegramGroupDto = BookkeepingWhatsappGroupDto
+typealias SaveBookkeepingTelegramGroupRequest = SaveBookkeepingWhatsappGroupRequest
+typealias BookkeepingTelegramChatSyncResultDto = BookkeepingWhatsappChatSyncResultDto
+typealias BookkeepingTelegramStatusDto = BookkeepingWhatsappStatusDto
+typealias ScanBookkeepingTelegramMessagesRequest = ScanBookkeepingWhatsappMessagesRequest
+typealias BookkeepingTelegramMessageScanResultDto = BookkeepingWhatsappMessageScanResultDto
+
 data class BookkeepingWhatsappBootstrapDto(
     val crownAccounts: List<BookkeepingCrownAccountDto>,
     val whatsappGroups: List<BookkeepingWhatsappGroupDto>,
@@ -125,6 +160,7 @@ data class ImportBookkeepingWhatsappOrdersRequest(
 data class BookkeepingWhatsappOrderImportDto(
     val groupKey: String,
     val orderKey: String,
+    val sourceType: String = "whatsapp",
     val direction: String,
     val messageTime: Long? = null,
     val senderName: String? = null,
@@ -219,7 +255,6 @@ data class BookkeepingDailySummaryDto(
     val todayProfit: BigDecimal,
     val upstreamTotalStake: BigDecimal = BigDecimal.ZERO,
     val downstreamTotalStake: BigDecimal = BigDecimal.ZERO,
-    val downstreamRebateAmount: BigDecimal = BigDecimal.ZERO,
     val upstreamCashflow: BigDecimal = BigDecimal.ZERO,
     val downstreamCashflow: BigDecimal = BigDecimal.ZERO,
     val waterLossAmount: BigDecimal = BigDecimal.ZERO,
@@ -255,6 +290,7 @@ data class BookkeepingWhatsappOrderDto(
     val id: Long?,
     val taskId: Long?,
     val groupId: Long?,
+    val sourceType: String = "whatsapp",
     val businessDate: String,
     val orderKey: String,
     val direction: String,
@@ -292,6 +328,7 @@ data class BookkeepingDashboardDto(
     val summary: BookkeepingDailySummaryDto,
     val crownAccounts: List<BookkeepingCrownAccountDto>,
     val whatsappGroups: List<BookkeepingWhatsappGroupDto>,
+    val telegramGroups: List<BookkeepingTelegramGroupDto> = emptyList(),
     val crownWagers: List<BookkeepingCrownWagerDto>,
     val whatsappOrders: List<BookkeepingWhatsappOrderDto>,
     val reconciliationResults: List<BookkeepingReconciliationResultDto>,

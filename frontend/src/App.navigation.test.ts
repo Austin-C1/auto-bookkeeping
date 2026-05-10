@@ -17,8 +17,21 @@ describe('app navigation', () => {
     expect(layoutSource).toContain('滚球工作台')
     expect(layoutSource).toContain("key: '/bookkeeping/crown/accounts'")
     expect(layoutSource).toContain("key: '/bookkeeping/whatsapp/groups'")
+    expect(layoutSource).toContain("key: '/bookkeeping/telegram/groups'")
+    expect(layoutSource).toContain("key: '/bookkeeping/crown/wagers'")
+    expect(layoutSource).toContain("key: '/bookkeeping/prematch/reconciliation'")
+    expect(layoutSource).toContain("key: '/bookkeeping/rolling/reconciliation'")
     expect(layoutSource).toContain('皇冠账号管理')
     expect(layoutSource).toContain('WhatsApp 群配置')
+    expect(layoutSource).toContain('Telegram 群配置')
+    expect(layoutSource).toContain('皇冠投注中心')
+    expect(layoutSource).toContain('赛前对账中心')
+    expect(layoutSource).toContain('滚球对账中心')
+    expect(layoutSource).not.toContain('皇冠投注记录')
+    expect(layoutSource).not.toContain('WhatsApp 订单中心')
+
+    const pageKeySection = layoutSource.slice(layoutSource.indexOf('const pageKeys'))
+    expect(pageKeySection.indexOf("'/bookkeeping/rolling/reconciliation'")).toBeLessThan(pageKeySection.indexOf("'/bookkeeping/rolling',"))
   })
 
   it('does not expose non-bookkeeping pages from the copied app', () => {

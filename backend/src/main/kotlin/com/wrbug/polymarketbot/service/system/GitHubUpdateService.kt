@@ -26,6 +26,8 @@ object UpdatePackageSafety {
     private val allowedExactPaths = setOf(
         "launch-blackcat.ps1",
         "launch-blackcat.cmd",
+        "open-blackcat-frontend.ps1",
+        "open-blackcat-frontend.cmd",
         "start-blackcat-backend.ps1",
         "start-blackcat-backend.cmd",
         "launch-odds-monitor.ps1",
@@ -166,7 +168,7 @@ object UpdateApplyScriptBuilder {
               Write-Status ${'$'}true 82 '停止旧程序'
               Stop-Process -Id $backendPid -Force -ErrorAction SilentlyContinue
               Stop-MatchingProcesses '*auto-bookkeeping-backend*'
-              Stop-MatchingProcesses '*serve-odds-frontend.ps1*'
+              Stop-MatchingProcesses '*serve-blackcat-frontend.ps1*'
               New-Item -ItemType Directory -Path ${'$'}backupRoot -Force | Out-Null
               Write-Status ${'$'}true 88 '备份旧文件'
               foreach (${'$'}relative in ${'$'}files) {

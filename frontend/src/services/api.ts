@@ -944,6 +944,15 @@ export const apiService = {
     scanWhatsappMessages: (data: unknown) => apiClient.post<ApiResponse<unknown>>('/bookkeeping/whatsapp/scan', data),
     importWhatsappOrders: (data: unknown) =>
       apiClient.post<ApiResponse<unknown>>('/bookkeeping/whatsapp/orders/import', data),
+    listTelegramGroups: () => apiClient.post<ApiResponse<unknown>>('/bookkeeping/telegram/groups/list', {}),
+    saveTelegramGroup: (data: unknown) => apiClient.post<ApiResponse<unknown>>('/bookkeeping/telegram/groups/save', data),
+    telegramApiConfig: () => apiClient.post<ApiResponse<unknown>>('/bookkeeping/telegram/api-config', {}),
+    saveTelegramApiConfig: (data: unknown) => apiClient.post<ApiResponse<unknown>>('/bookkeeping/telegram/api-config/save', data),
+    telegramStatus: () => apiClient.post<ApiResponse<unknown>>('/bookkeeping/telegram/status', {}),
+    syncTelegramChats: () => apiClient.post<ApiResponse<unknown>>('/bookkeeping/telegram/chats/sync', {}),
+    scanTelegramMessages: (data: unknown) => apiClient.post<ApiResponse<unknown>>('/bookkeeping/telegram/scan', data),
+    fetchTitan007Scores: (data: { businessDate: string; leagueFilter?: string; startTime?: string; endTime?: string }) =>
+      apiClient.post<ApiResponse<unknown>>('/bookkeeping/score-results/titan007/fetch', data),
     runTask: (data: { businessDate: string; workspaceType?: string; reportType?: string }) => apiClient.post<ApiResponse<unknown>>('/bookkeeping/tasks/run', data),
     clearGeneratedFiles: () => apiClient.post<ApiResponse<unknown>>('/bookkeeping/tasks/generated-files/clear', {}),
     downloadTask: (taskId: number) => apiClient.get(`/bookkeeping/tasks/${taskId}/download`, { responseType: 'blob' })

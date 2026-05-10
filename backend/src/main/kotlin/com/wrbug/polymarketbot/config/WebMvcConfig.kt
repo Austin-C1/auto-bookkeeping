@@ -10,7 +10,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 class WebMvcConfig(
     private val jwtAuthenticationInterceptor: JwtAuthenticationInterceptor,
     private val localeInterceptor: LocaleInterceptor,
-    @Value("\${cors.allowed-origins:http://127.0.0.1:18882,http://localhost:18882}")
+    @Value("\${cors.allowed-origins:http://127.0.0.1:18880,http://localhost:18880,http://127.0.0.1:18882,http://localhost:18882}")
     private val allowedOriginsConfig: String
 ) : WebMvcConfigurer {
 

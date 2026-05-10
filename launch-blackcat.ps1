@@ -1,26 +1,26 @@
 ﻿$rootDir = (Resolve-Path (Split-Path -Parent $MyInvocation.MyCommand.Path)).Path
 $backendScript = Join-Path $rootDir 'start-blackcat-backend.ps1'
 $frontendDir = Join-Path $rootDir 'frontend'
-$frontendUrl = 'http://127.0.0.1:18882'
-$frontendLoginUrl = "$frontendUrl/login"
+$frontendUrl = 'http://127.0.0.1:18880'
+$frontendAppUrl = "$frontendUrl/bookkeeping"
 $frontendApiReadyUrl = "$frontendUrl/api/auth/check-first-use"
-$databasePort = 13309
-$databaseContainerName = 'bookkeeping-blackcat-mysql'
+$databasePort = 13307
+$databaseContainerName = 'blackcat-v1-mysql'
 $databaseImage = 'mysql:8.1'
-$databaseVolumeName = 'bookkeeping-blackcat-mysql-data'
-$databaseName = 'bookkeeping_blackcat'
+$databaseVolumeName = 'blackcat-v1-mysql-data'
+$databaseName = 'blackcat_v1'
 $databasePassword = 'change-me'
 $dockerDesktopExe = 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
 $backendPort = 18001
 $backendUrl = "http://127.0.0.1:$backendPort"
 $backendReadyUrl = "$backendUrl/api/auth/check-first-use"
-$frontendPort = 18882
+$frontendPort = 18880
 $backendStartupTimeoutSeconds = 180
 $frontendOutLog = Join-Path $rootDir 'frontend-live.out.log'
 $frontendErrLog = Join-Path $rootDir 'frontend-live.err.log'
 $frontendDistDir = Join-Path $frontendDir 'dist'
 $frontendDistMarker = Join-Path $frontendDistDir '.desktop-runtime.json'
-$frontendStaticServerScript = Join-Path $rootDir 'scripts\serve-odds-frontend.ps1'
+$frontendStaticServerScript = Join-Path $rootDir 'scripts\serve-blackcat-frontend.ps1'
 $powershellExe = Join-Path $PSHOME 'powershell.exe'
 $localConfig = Join-Path $rootDir 'config\local.env.ps1'
 
@@ -30,15 +30,15 @@ if (Test-Path $localConfig) {
 
 function Write-Status {
     param([string]$Message)
-    Write-Host "[OddsMonitor] $Message"
+    Write-Host "[BlackCat] $Message"
 }
 
 function Fail-Launch {
     param([string]$Message)
 
     Write-Host ''
-    Write-Host "[OddsMonitor] Launch failed: $Message" -ForegroundColor Red
-    Write-Host "[OddsMonitor] Logs: $rootDir"
+    Write-Host "[BlackCat] Launch failed: $Message" -ForegroundColor Red
+    Write-Host "[BlackCat] Logs: $rootDir"
     Write-Host ''
     if ([System.Environment]::UserInteractive -and -not [System.Console]::IsInputRedirected) {
         Write-Host 'Press any key to close...'
@@ -191,9 +191,9 @@ function Wait-PostReady {
     return $false
 }
 
-function Stop-OddsMonitorFrontendServer {
+function Stop-BlackcatFrontendServer {
     $processes = Get-CimInstance Win32_Process |
-        Where-Object { $_.CommandLine -like '*serve-odds-frontend.ps1*' }
+        Where-Object { $_.CommandLine -like '*serve-blackcat-frontend.ps1*' }
 
     foreach ($process in $processes) {
         Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
@@ -204,7 +204,7 @@ function Stop-OddsMonitorFrontendServer {
     }
 }
 
-function Stop-OddsMonitorBackendServer {
+function Stop-BlackcatBackendServer {
     $processes = Get-CimInstance Win32_Process |
         Where-Object { $_.Name -eq 'java.exe' -and $_.CommandLine -like '*auto-bookkeeping-backend*' }
 
@@ -413,7 +413,7 @@ Invoke-LaunchStep 'Checking database' {
 Invoke-LaunchStep 'Checking backend service' {
     if ((Test-PortListening -Port $backendPort) -and -not (Test-PostReady -Url $backendReadyUrl)) {
         Write-Status 'Backend port is occupied but unhealthy; restarting backend'
-        Stop-OddsMonitorBackendServer
+        Stop-BlackcatBackendServer
         if (-not (Wait-PortFree -Port $backendPort -TimeoutSeconds 20)) {
             throw "Backend port $backendPort is still occupied."
         }
@@ -434,7 +434,7 @@ Invoke-LaunchStep 'Checking backend service' {
 Invoke-LaunchStep 'Checking frontend service' {
     if ((Test-PortListening -Port $frontendPort) -and -not (Test-PostReady -Url $frontendApiReadyUrl)) {
         Write-Status 'Frontend service is outdated or API proxy is unhealthy; restarting frontend'
-        Stop-OddsMonitorFrontendServer
+        Stop-BlackcatFrontendServer
         if (-not (Wait-PortFree -Port $frontendPort -TimeoutSeconds 20)) {
             throw "Frontend port $frontendPort is still occupied."
         }
@@ -464,8 +464,8 @@ Invoke-LaunchStep 'Checking frontend service' {
         throw "Frontend did not start on port $frontendPort."
     }
 
-    if (-not (Wait-HttpReady -Url $frontendLoginUrl -TimeoutSeconds 60)) {
-        throw "Frontend page did not become available at $frontendLoginUrl."
+    if (-not (Wait-HttpReady -Url $frontendAppUrl -TimeoutSeconds 60)) {
+        throw "Frontend page did not become available at $frontendAppUrl."
     }
 
     if (-not (Test-PostReady -Url $frontendApiReadyUrl)) {
@@ -473,8 +473,8 @@ Invoke-LaunchStep 'Checking frontend service' {
     }
 }
 
-Write-Status 'Opening login page'
-Start-Process $frontendLoginUrl | Out-Null
+Write-Status 'Opening bookkeeping page'
+Start-Process $frontendAppUrl | Out-Null
 Write-Status 'Ready'
 
 

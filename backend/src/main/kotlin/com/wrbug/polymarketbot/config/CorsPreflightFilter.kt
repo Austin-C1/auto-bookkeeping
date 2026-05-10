@@ -12,7 +12,7 @@ import org.springframework.web.filter.OncePerRequestFilter
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 class CorsPreflightFilter(
-    @Value("\${cors.allowed-origins:http://127.0.0.1:18882,http://localhost:18882}")
+    @Value("\${cors.allowed-origins:http://127.0.0.1:18880,http://localhost:18880,http://127.0.0.1:18882,http://localhost:18882}")
     allowedOriginsConfig: String
 ) : OncePerRequestFilter() {
 
