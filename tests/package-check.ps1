@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $rootDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$launchScriptPath = Join-Path $rootDir 'launch-blackcat.ps1'
 $startScriptPath = Join-Path $rootDir 'start-blackcat-backend.ps1'
 $emptyPackageScriptPath = Join-Path $rootDir 'build-blackcat-empty-package.ps1'
 
@@ -16,8 +17,41 @@ function Assert-Contains {
     }
 }
 
+function Assert-NotContains {
+    param(
+        [string]$Content,
+        [string]$Needle,
+        [string]$Message
+    )
+
+    if ($Content.Contains($Needle)) {
+        throw $Message
+    }
+}
+
+$launchScript = Get-Content -Path $launchScriptPath -Raw
 $startScript = Get-Content -Path $startScriptPath -Raw
 $emptyPackageScript = Get-Content -Path $emptyPackageScriptPath -Raw
+
+Assert-Contains `
+    -Content $launchScript `
+    -Needle "Ensure-DesktopShortcut" `
+    -Message 'launch-blackcat.ps1 must create or repair the desktop shortcut on every start.'
+
+Assert-Contains `
+    -Content $launchScript `
+    -Needle "CreateShortcut" `
+    -Message 'launch-blackcat.ps1 must use a Windows shortcut instead of only opening the browser.'
+
+Assert-Contains `
+    -Content $launchScript `
+    -Needle "6Ieq5Yqo5YGa6LSm5ZCv5YqoLmxuaw==" `
+    -Message 'launch-blackcat.ps1 must name the desktop shortcut 自动做账启动.lnk.'
+
+Assert-NotContains `
+    -Content $launchScript `
+    -Needle "6buR54yr5ZCv5YqoLmxuaw==" `
+    -Message 'launch-blackcat.ps1 must not overwrite 黑猫启动.lnk.'
 
 Assert-Contains `
     -Content $startScript `
@@ -46,8 +80,13 @@ Assert-Contains `
 
 Assert-Contains `
     -Content $emptyPackageScript `
+    -Needle "6Ieq5Yqo5YGa6LSm5ZCv5YqoLmxuaw==" `
+    -Message 'The desktop shortcut must be named 自动做账启动.lnk.'
+
+Assert-NotContains `
+    -Content $emptyPackageScript `
     -Needle "6buR54yr5ZCv5YqoLmxuaw==" `
-    -Message 'The desktop shortcut must be named 黑猫启动.lnk.'
+    -Message 'The package launcher must not overwrite 黑猫启动.lnk.'
 
 Assert-Contains `
     -Content $emptyPackageScript `

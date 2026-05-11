@@ -1,4 +1,6 @@
 ﻿$rootDir = (Resolve-Path (Split-Path -Parent $MyInvocation.MyCommand.Path)).Path
+$launcherCmdPath = Join-Path $rootDir 'launch-blackcat.cmd'
+$desktopShortcutName = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('6Ieq5Yqo5YGa6LSm5ZCv5YqoLmxuaw=='))
 $backendScript = Join-Path $rootDir 'start-blackcat-backend.ps1'
 $frontendDir = Join-Path $rootDir 'frontend'
 $frontendUrl = 'http://127.0.0.1:18880'
@@ -49,6 +51,30 @@ function Fail-Launch {
         }
     }
     exit 1
+}
+
+function Ensure-DesktopShortcut {
+    try {
+        if (-not (Test-Path $launcherCmdPath)) {
+            return
+        }
+
+        $desktopDir = [Environment]::GetFolderPath('Desktop')
+        if ([string]::IsNullOrWhiteSpace($desktopDir) -or -not (Test-Path $desktopDir)) {
+            return
+        }
+
+        $shortcutPath = Join-Path $desktopDir $desktopShortcutName
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $launcherCmdPath
+        $shortcut.WorkingDirectory = $rootDir
+        $shortcut.IconLocation = $launcherCmdPath
+        $shortcut.Save()
+    }
+    catch {
+        Write-Status "Desktop shortcut skipped: $($_.Exception.Message)"
+    }
 }
 
 function Invoke-LaunchStep {
@@ -364,6 +390,8 @@ function Wait-DatabaseReady {
 
     return $false
 }
+
+Ensure-DesktopShortcut
 
 Invoke-LaunchStep 'Checking program files' {
     if (-not (Test-Path $backendScript)) {
