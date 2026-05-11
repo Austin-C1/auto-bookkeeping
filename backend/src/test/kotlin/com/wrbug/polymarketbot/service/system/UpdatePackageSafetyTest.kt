@@ -107,7 +107,24 @@ class UpdatePackageSafetyTest {
         assertTrue(script.contains("*telegram-bridge*server.mjs*"))
         assertTrue(script.contains("launch-blackcat.ps1"))
         assertTrue(script.contains("update-apply.log"))
-        assertTrue(script.contains("更新失败"))
+        assertTrue(script.contains("Update failed"))
         assertTrue(script.contains("finally"))
+    }
+
+    @Test
+    fun `apply script status messages are valid powershell strings`() {
+        val script = UpdateApplyScriptBuilder.render(
+            appRoot = Path.of("C:/Users/kesul/Desktop/app"),
+            packageRoot = Path.of("C:/Users/kesul/Desktop/app/updates/work-v1.0.9"),
+            backupRoot = Path.of("C:/Users/kesul/Desktop/app/backups/update-v1.0.9"),
+            files = listOf("backend/build/libs/auto-bookkeeping-backend-1.0.9.jar"),
+            backendPid = 12345
+        )
+
+        assertTrue(script.contains("Write-Status ${'$'}true 82 'Stopping old program'"))
+        assertTrue(script.contains("Write-Status ${'$'}true 88 'Backing up old files'"))
+        assertTrue(script.contains("Write-Status ${'$'}true 94 'Copying new files'"))
+        assertTrue(script.contains("Write-Status ${'$'}false 100 'Update completed'"))
+        assertTrue(script.contains("Write-Status ${'$'}false 0 'Update failed' ${'$'}message"))
     }
 }

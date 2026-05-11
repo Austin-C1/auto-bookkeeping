@@ -175,14 +175,14 @@ object UpdateApplyScriptBuilder {
             ${'$'}launcher = Join-Path ${'$'}appRoot 'launch-blackcat.ps1'
             try {
               Start-Sleep -Seconds 2
-              Write-Status ${'$'}true 82 '停止旧程序'
+              Write-Status ${'$'}true 82 'Stopping old program'
               Stop-Process -Id $backendPid -Force -ErrorAction SilentlyContinue
               Stop-MatchingProcesses '*auto-bookkeeping-backend*'
               Stop-MatchingProcesses '*serve-blackcat-frontend.ps1*'
               Stop-MatchingProcesses '*start-telegram-bridge.ps1*'
               Stop-MatchingProcesses '*telegram-bridge*server.mjs*'
               New-Item -ItemType Directory -Path ${'$'}backupRoot -Force | Out-Null
-              Write-Status ${'$'}true 88 '备份旧文件'
+              Write-Status ${'$'}true 88 'Backing up old files'
               foreach (${'$'}relative in ${'$'}files) {
                 ${'$'}src = Join-Path ${'$'}packageRoot ${'$'}relative
                 ${'$'}dst = Join-Path ${'$'}appRoot ${'$'}relative
@@ -192,19 +192,19 @@ object UpdateApplyScriptBuilder {
                   Copy-Item -LiteralPath ${'$'}dst -Destination ${'$'}backup -Recurse -Force
                 }
               }
-              Write-Status ${'$'}true 94 '复制新文件'
+              Write-Status ${'$'}true 94 'Copying new files'
               foreach (${'$'}relative in ${'$'}files) {
                 ${'$'}src = Join-Path ${'$'}packageRoot ${'$'}relative
                 ${'$'}dst = Join-Path ${'$'}appRoot ${'$'}relative
                 New-Item -ItemType Directory -Path (Split-Path -Parent ${'$'}dst) -Force | Out-Null
                 Copy-Item -LiteralPath ${'$'}src -Destination ${'$'}dst -Recurse -Force
               }
-              Write-Status ${'$'}false 100 '更新完成'
+              Write-Status ${'$'}false 100 'Update completed'
             }
             catch {
               ${'$'}message = ${'$'}_.Exception.Message
-              Write-Status ${'$'}false 0 '更新失败' ${'$'}message
-              Write-Log ('更新失败: {0}' -f ${'$'}message)
+              Write-Status ${'$'}false 0 'Update failed' ${'$'}message
+              Write-Log ('Update failed: {0}' -f ${'$'}message)
             }
             finally {
               if (Test-Path ${'$'}launcher) {

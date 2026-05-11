@@ -4,3 +4,4 @@
 - Removed first-use password setup routing and related frontend strings.
 - Rebuilt the blank installer and update package from the corrected source.
 - Verified the packaged app opens the bookkeeping page without showing the password reset page.
+- Fixed the local update apply script so future remote updates can finish instead of stalling during restart.
