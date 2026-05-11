@@ -7,6 +7,14 @@ const root = join(process.cwd(), '..')
 const readRootFile = (path: string) => readFileSync(join(root, path), 'utf8')
 
 describe('packaged BlackCat launcher', () => {
+  it('ships the requested 1.0.9 version consistently', () => {
+    const frontendPackage = JSON.parse(readRootFile('frontend/package.json')) as { version: string }
+    const backendBuild = readRootFile('backend/build.gradle.kts')
+
+    expect(frontendPackage.version).toBe('1.0.9')
+    expect(backendBuild).toContain('version = "1.0.9"')
+  })
+
   it('opens bookkeeping through the BlackCat frontend without the password page', () => {
     const launchScript = readRootFile('launch-blackcat.ps1')
 
