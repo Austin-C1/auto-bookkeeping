@@ -45,8 +45,6 @@ enum class ErrorCode(
     AUTH_API_PASSPHRASE_INVALID(2007, "API Passphrase 无效", "error.auth.api_passphrase_invalid"),
     AUTH_API_CREDENTIALS_MISSING(2008, "API 凭证未配置", "error.auth.api_credentials_missing"),
     AUTH_USERNAME_OR_PASSWORD_ERROR(2009, "用户名或密码错误", "error.auth.username_or_password_error"),
-    AUTH_RESET_KEY_INVALID(2010, "重置密钥错误", "error.auth.reset_key_invalid"),
-    AUTH_RESET_PASSWORD_RATE_LIMIT(2011, "频率限制：1分钟内最多尝试3次，请稍后再试", "error.auth.reset_password_rate_limit"),
     AUTH_USER_NOT_FOUND(2012, "用户不存在", "error.auth.user_not_found"),
     AUTH_PASSWORD_WEAK(2013, "密码长度不符合要求，至少6位", "error.auth.password_weak"),
     BUILDER_API_KEY_NOT_CONFIGURED(2014, "Builder API Key 未配置", "error.builder_api_key_not_configured"),

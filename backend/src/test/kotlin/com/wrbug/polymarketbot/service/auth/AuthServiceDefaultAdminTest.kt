@@ -5,10 +5,10 @@ import com.wrbug.polymarketbot.repository.UserRepository
 import com.wrbug.polymarketbot.service.common.RateLimitService
 import com.wrbug.polymarketbot.util.JwtUtils
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.`when`
 import org.mockito.Mockito.mock
@@ -28,17 +28,18 @@ class AuthServiceDefaultAdminTest {
     private val passwordEncoder = BCryptPasswordEncoder()
 
     @Test
-    fun `isFirstUse seeds packaged default admin when enabled`() {
+    fun `local login seeds packaged default admin when enabled`() {
         val store = InMemoryUserStore()
         val service = createService(store)
 
         setField(service, "packagedDefaultAdminEnabled", true)
         setField(service, "packagedDefaultAdminUsername", "123456")
         setField(service, "packagedDefaultAdminPassword", "123456")
+        `when`(jwtUtils.generateToken("123456", 0)).thenReturn("local-token")
 
-        val result = service.isFirstUse()
+        val result = service.localLogin()
 
-        assertFalse(result)
+        assertTrue(result.isSuccess)
         val savedUser = store.user ?: error("expected seeded user")
         assertEquals("123456", savedUser.username)
         assertTrue(savedUser.isDefault)
@@ -82,7 +83,7 @@ class AuthServiceDefaultAdminTest {
     }
 
     @Test
-    fun `concurrent first use checks seed packaged default admin only once`() {
+    fun `concurrent local logins seed packaged default admin only once`() {
         val store = InMemoryUserStore(barrier = CyclicBarrier(2))
         val service = createService(store)
         val executor = Executors.newFixedThreadPool(2)
@@ -90,16 +91,17 @@ class AuthServiceDefaultAdminTest {
         setField(service, "packagedDefaultAdminEnabled", true)
         setField(service, "packagedDefaultAdminUsername", "123456")
         setField(service, "packagedDefaultAdminPassword", "123456")
+        `when`(jwtUtils.generateToken(anyString(), anyLong())).thenReturn("local-token")
 
         try {
             val futures = listOf(
-                executor.submit(Callable { service.isFirstUse() }),
-                executor.submit(Callable { service.isFirstUse() })
+                executor.submit(Callable { service.localLogin() }),
+                executor.submit(Callable { service.localLogin() })
             )
 
             val results = futures.map { it.get(10, TimeUnit.SECONDS) }
 
-            assertEquals(listOf(false, false), results)
+            assertTrue(results.all { it.isSuccess })
             assertEquals(1, store.saveCount)
         } finally {
             executor.shutdownNow()

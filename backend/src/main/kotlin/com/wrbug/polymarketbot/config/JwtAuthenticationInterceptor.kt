@@ -21,9 +21,7 @@ class JwtAuthenticationInterceptor(
     private val objectMapper = ObjectMapper()
     private val excludePaths = setOf(
         "/api/auth/login",
-        "/api/auth/local-login",
-        "/api/auth/reset-password",
-        "/api/auth/check-first-use"
+        "/api/auth/local-login"
     )
     
     override fun preHandle(

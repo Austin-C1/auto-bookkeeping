@@ -12,7 +12,6 @@ set "DB_USERNAME=root"
 set "DB_PASSWORD=change-me"
 set "JWT_SECRET=change-me-change-me-change-me-change-me"
 set "ENCRYPTION_KEY=change-me-change-me-change-me-change-me"
-set "ADMIN_RESET_PASSWORD_KEY=change-me"
 set "SPRING_PROFILES_ACTIVE=prod"
 set "SERVER_PORT=8000"
 

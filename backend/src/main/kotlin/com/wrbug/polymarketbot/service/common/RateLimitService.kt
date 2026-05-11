@@ -4,17 +4,11 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicReference
 
 @Service
 class RateLimitService {
 
     private val logger = LoggerFactory.getLogger(RateLimitService::class.java)
-    @Value("\${rate-limit.reset-password.max-attempts:3}")
-    private var resetPasswordMaxAttempts: Int = 3
-
-    @Value("\${rate-limit.reset-password.window-seconds:60}")
-    private var resetPasswordWindowSeconds: Long = 60
     @Value("\${rate-limit.login.max-attempts:5}")
     private var loginMaxAttempts: Int = 5
 
@@ -23,24 +17,8 @@ class RateLimitService {
 
     @Value("\${rate-limit.login.lockout-seconds:900}")
     private var loginLockoutSeconds: Long = 900
-    private val resetPasswordAttempts = AtomicReference<MutableList<Long>>(mutableListOf())
     private val loginFailedAttempts = ConcurrentHashMap<String, MutableList<Long>>()
     private val loginLockouts = ConcurrentHashMap<String, Long>()
-
-    fun checkResetPasswordRateLimit(): Result<Unit> {
-        val now = System.currentTimeMillis()
-        val windowStart = now - (resetPasswordWindowSeconds * 1000)
-        val attempts = resetPasswordAttempts.get()
-        val validAttempts = attempts.filter { it >= windowStart }.toMutableList()
-        if (validAttempts.size >= resetPasswordMaxAttempts) {
-            logger.warn("重置密码频率限制触发: attempts=${validAttempts.size}/$resetPasswordMaxAttempts")
-            return Result.failure(IllegalStateException("频率限制：1分钟内最多尝试${resetPasswordMaxAttempts}次，请稍后再试"))
-        }
-        validAttempts.add(now)
-        resetPasswordAttempts.set(validAttempts)
-
-        return Result.success(Unit)
-    }
 
     fun checkLoginRateLimit(ipAddress: String): Result<Unit> {
         val now = System.currentTimeMillis()

@@ -46,7 +46,6 @@ class ApiErrorHttpStatusAdvice : ResponseBodyAdvice<Any> {
         return when {
             code in 400..599 -> HttpStatus.resolve(code)
             code == ErrorCode.AUTH_PERMISSION_DENIED.code -> HttpStatus.FORBIDDEN
-            code == ErrorCode.AUTH_RESET_PASSWORD_RATE_LIMIT.code -> HttpStatus.TOO_MANY_REQUESTS
             code in 1001..1999 -> HttpStatus.BAD_REQUEST
             code in 2001..2999 -> HttpStatus.UNAUTHORIZED
             code in 3001..3999 -> HttpStatus.NOT_FOUND

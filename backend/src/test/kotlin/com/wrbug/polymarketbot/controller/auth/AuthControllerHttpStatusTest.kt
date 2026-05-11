@@ -1,7 +1,6 @@
 package com.wrbug.polymarketbot.controller.auth
 
 import com.wrbug.polymarketbot.dto.LoginRequest
-import com.wrbug.polymarketbot.dto.ResetPasswordRequest
 import com.wrbug.polymarketbot.enums.ErrorCode
 import com.wrbug.polymarketbot.repository.UserRepository
 import com.wrbug.polymarketbot.service.auth.AuthService
@@ -74,16 +73,6 @@ class AuthControllerHttpStatusTest {
         val response = controller.localLogin(request)
 
         assertEquals(HttpStatus.FORBIDDEN, response.statusCode)
-    }
-
-    @Test
-    fun `reset password returns 400 when reset key is blank`() {
-        val response = controller.resetPassword(
-            ResetPasswordRequest(resetKey = "", username = "demo", newPassword = "123456"),
-            MockHttpServletRequest()
-        )
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
     }
 
     @Test

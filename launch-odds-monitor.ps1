@@ -4,7 +4,7 @@ $backendDir = Join-Path $rootDir 'backend'
 $frontendDir = Join-Path $rootDir 'frontend'
 $frontendUrl = 'http://127.0.0.1:18882'
 $frontendLoginUrl = "$frontendUrl/login"
-$frontendApiReadyUrl = "$frontendUrl/api/auth/check-first-use"
+$frontendApiReadyUrl = "$frontendUrl/api/auth/local-login"
 $databasePort = 13309
 $databaseContainerName = 'bookkeeping-blackcat-mysql'
 $databaseImage = 'mysql:8.1'
@@ -14,7 +14,7 @@ $databasePassword = 'change-me'
 $dockerDesktopExe = 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
 $backendPort = 18001
 $backendUrl = "http://127.0.0.1:$backendPort"
-$backendReadyUrl = "$backendUrl/api/auth/check-first-use"
+$backendReadyUrl = "$backendUrl/api/auth/local-login"
 $frontendPort = 18882
 $backendStartupTimeoutSeconds = 180
 $frontendOutLog = Join-Path $rootDir 'frontend-live.out.log'
@@ -91,7 +91,7 @@ $databaseImage = Get-TrimmedString $databaseImage
 $databaseVolumeName = Get-TrimmedString $databaseVolumeName
 $databaseName = Get-TrimmedString $databaseName
 $databasePassword = ([string]$databasePassword).Trim()
-@('DB_URL', 'DB_USERNAME', 'DB_PASSWORD', 'JWT_SECRET', 'ENCRYPTION_KEY', 'ADMIN_RESET_PASSWORD_KEY') |
+@('DB_URL', 'DB_USERNAME', 'DB_PASSWORD', 'JWT_SECRET', 'ENCRYPTION_KEY') |
     ForEach-Object { Set-TrimmedEnv -Name $_ }
 
 function Test-PortListening {

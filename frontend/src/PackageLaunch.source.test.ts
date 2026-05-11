@@ -7,12 +7,43 @@ const root = join(process.cwd(), '..')
 const readRootFile = (path: string) => readFileSync(join(root, path), 'utf8')
 
 describe('packaged BlackCat launcher', () => {
-  it('ships the requested 1.0.9 version consistently', () => {
+  it('ships the requested 1.1.0 version consistently', () => {
     const frontendPackage = JSON.parse(readRootFile('frontend/package.json')) as { version: string }
     const backendBuild = readRootFile('backend/build.gradle.kts')
 
-    expect(frontendPackage.version).toBe('1.0.9')
-    expect(backendBuild).toContain('version = "1.0.9"')
+    expect(frontendPackage.version).toBe('1.1.0')
+    expect(backendBuild).toContain('version = "1.1.0"')
+  })
+
+  it('removes the old reset password and first-use backend flow from packaged sources', () => {
+    const launchScript = readRootFile('launch-blackcat.ps1')
+    const oddsLaunchScript = readRootFile('launch-odds-monitor.ps1')
+    const authController = readRootFile('backend/src/main/kotlin/com/wrbug/polymarketbot/controller/auth/AuthController.kt')
+    const authService = readRootFile('backend/src/main/kotlin/com/wrbug/polymarketbot/service/auth/AuthService.kt')
+    const authDto = readRootFile('backend/src/main/kotlin/com/wrbug/polymarketbot/dto/AuthRequest.kt')
+    const authInterceptor = readRootFile('backend/src/main/kotlin/com/wrbug/polymarketbot/config/JwtAuthenticationInterceptor.kt')
+    const rateLimitService = readRootFile('backend/src/main/kotlin/com/wrbug/polymarketbot/service/common/RateLimitService.kt')
+    const appProperties = readRootFile('backend/src/main/resources/application.properties')
+    const combined = [
+      launchScript,
+      oddsLaunchScript,
+      authController,
+      authService,
+      authDto,
+      authInterceptor,
+      rateLimitService,
+      appProperties
+    ].join('\n')
+
+    expect(launchScript).toContain('/api/auth/local-login')
+    expect(oddsLaunchScript).toContain('/api/auth/local-login')
+    expect(combined).not.toContain('reset-password')
+    expect(combined).not.toContain('check-first-use')
+    expect(combined).not.toContain('ResetPasswordRequest')
+    expect(combined).not.toContain('CheckFirstUseResponse')
+    expect(combined).not.toContain('checkResetPasswordRateLimit')
+    expect(combined).not.toContain('admin.reset-password')
+    expect(combined).not.toContain('rate-limit.reset-password')
   })
 
   it('opens bookkeeping through the BlackCat frontend without the password page', () => {
