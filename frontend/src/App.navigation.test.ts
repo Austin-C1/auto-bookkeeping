@@ -73,4 +73,28 @@ describe('app navigation', () => {
     expect(loginSource).not.toContain('UserOutlined')
     expect(loginSource).not.toContain('LockOutlined')
   })
+
+  it('removes the reset password page from the local bookkeeping app', () => {
+    const appSource = readFileSync(join(process.cwd(), 'src', 'App.tsx'), 'utf8')
+
+    expect(appSource).not.toContain('ResetPassword')
+    expect(appSource).not.toContain('/reset-password')
+    expect(appSource).not.toContain('checkFirstUse')
+    expect(appSource).not.toContain('isFirstUse')
+  })
+
+  it('does not ship reset password source strings in the local frontend', () => {
+    const apiSource = readFileSync(join(process.cwd(), 'src', 'services', 'api.ts'), 'utf8')
+    const zhCnLocale = readFileSync(join(process.cwd(), 'src', 'locales', 'zh-CN', 'common.json'), 'utf8')
+    const zhTwLocale = readFileSync(join(process.cwd(), 'src', 'locales', 'zh-TW', 'common.json'), 'utf8')
+    const enLocale = readFileSync(join(process.cwd(), 'src', 'locales', 'en', 'common.json'), 'utf8')
+    const combinedLocale = `${zhCnLocale}\n${zhTwLocale}\n${enLocale}`
+
+    expect(apiSource).not.toContain('/reset-password')
+    expect(apiSource).not.toContain('/auth/reset-password')
+    expect(apiSource).not.toContain('/auth/check-first-use')
+    expect(combinedLocale).not.toContain('"resetPassword"')
+    expect(combinedLocale).not.toContain('重置密码')
+    expect(combinedLocale).not.toContain('首次使用系统')
+  })
 })

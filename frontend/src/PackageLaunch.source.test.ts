@@ -77,7 +77,7 @@ describe('packaged BlackCat launcher', () => {
     expect(emptyPackageScript).toContain('open-blackcat-frontend.cmd')
     expect(updatePackageScript).toContain('open-blackcat-frontend.cmd')
     expect(packageGuide).toContain('http://127.0.0.1:18880/bookkeeping')
-    expect(packageGuide).toContain('本机免密进入')
+    expect(packageGuide).toContain('默认免密进入')
     expect(packageGuide).not.toContain('http://127.0.0.1:18880/login')
     expect(packageGuide).not.toContain('创建你自己的账号和密码')
   })

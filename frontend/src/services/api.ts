@@ -122,7 +122,7 @@ const handleAuthError = (code: number) => {
     // 断开 WebSocket 连接
     notifyAuthExpired()
     // 跳转到登录页（避免循环跳转）
-    if (window.location.pathname !== '/login' && window.location.pathname !== '/reset-password') {
+    if (window.location.pathname !== '/login') {
       window.location.href = '/login'
     }
   }
@@ -219,18 +219,6 @@ export const apiService = {
 
     localLogin: () =>
       apiClient.post<ApiResponse<{ token: string }>>('/auth/local-login', {}),
-
-    /**
-     * 重置密码
-     */
-    resetPassword: (data: { resetKey: string; username: string; newPassword: string }) =>
-      apiClient.post<ApiResponse<void>>('/auth/reset-password', data),
-
-    /**
-     * 检查是否首次使用
-     */
-    checkFirstUse: () =>
-      apiClient.post<ApiResponse<{ isFirstUse: boolean }>>('/auth/check-first-use', {}),
 
     /**
      * 获取 WebSocket 连接票据

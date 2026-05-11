@@ -5,7 +5,6 @@ import { join } from 'node:path'
 const activeFiles = [
   'src/components/Layout.tsx',
   'src/pages/Login.tsx',
-  'src/pages/ResetPassword.tsx',
   'src/pages/Bookkeeping.tsx',
 ]
 
