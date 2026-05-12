@@ -20,6 +20,19 @@ class JwtAuthenticationInterceptorTest {
     private val interceptor = JwtAuthenticationInterceptor(jwtUtils, userRepository)
 
     @Test
+    fun `disabled package auth allows local bookkeeping api without bearer token`() {
+        val disabledInterceptor = JwtAuthenticationInterceptor(jwtUtils, userRepository, authEnabled = false)
+        val request = MockHttpServletRequest("POST", "/api/bookkeeping/dashboard")
+        val response = MockHttpServletResponse()
+
+        val allowed = disabledInterceptor.preHandle(request, response, Any())
+
+        assertEquals(true, allowed)
+        assertEquals(200, response.status)
+        verify(jwtUtils, never()).validateToken(anyString())
+    }
+
+    @Test
     fun `missing bearer token returns unauthorized`() {
         val request = MockHttpServletRequest("GET", "/api/system/health")
         val response = MockHttpServletResponse()

@@ -4,6 +4,7 @@ import com.wrbug.polymarketbot.repository.UserRepository
 import com.wrbug.polymarketbot.service.auth.WebSocketTicketService
 import com.wrbug.polymarketbot.util.JwtUtils
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.server.ServerHttpRequest
 import org.springframework.http.server.ServerHttpResponse
 import org.springframework.stereotype.Component
@@ -14,7 +15,9 @@ import org.springframework.web.socket.server.HandshakeInterceptor
 class WebSocketAuthInterceptor(
     private val jwtUtils: JwtUtils,
     private val userRepository: UserRepository,
-    private val webSocketTicketService: WebSocketTicketService
+    private val webSocketTicketService: WebSocketTicketService,
+    @Value("\${auto.bookkeeping.package.auth.enabled:\${odds.monitor.package.auth.enabled:true}}")
+    private val authEnabled: Boolean = true
 ) : HandshakeInterceptor {
     
     private val logger = LoggerFactory.getLogger(WebSocketAuthInterceptor::class.java)
@@ -25,6 +28,9 @@ class WebSocketAuthInterceptor(
         wsHandler: WebSocketHandler,
         attributes: MutableMap<String, Any>
     ): Boolean {
+        if (!authEnabled) {
+            return true
+        }
         val ticket = getTicketFromRequest(request)
         if (ticket != null) {
             val username = webSocketTicketService.validateAndConsumeTicket(ticket)

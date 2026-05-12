@@ -60,18 +60,17 @@ describe('app navigation', () => {
     expect(combined).not.toContain('/system-settings/rpc-nodes')
   })
 
-  it('uses passwordless local login page without username or password inputs', () => {
+  it('does not expose any login or authentication blocking route', () => {
     const appSource = readFileSync(join(process.cwd(), 'src', 'App.tsx'), 'utf8')
-    const loginSource = readFileSync(join(process.cwd(), 'src', 'pages', 'Login.tsx'), 'utf8')
+    const layoutSource = readFileSync(join(process.cwd(), 'src', 'components', 'Layout.tsx'), 'utf8')
+    const combined = `${appSource}\n${layoutSource}`
 
-    expect(loginSource).toContain('localLogin')
-    expect(appSource).toContain("state={{ from: `${location.pathname}${location.search}` }}")
-    expect(loginSource).toContain("navigate(redirectPath, { replace: true })")
-    expect(loginSource).not.toContain('name="username"')
-    expect(loginSource).not.toContain('name="password"')
-    expect(loginSource).not.toContain('Input.Password')
-    expect(loginSource).not.toContain('UserOutlined')
-    expect(loginSource).not.toContain('LockOutlined')
+    expect(combined).not.toContain("import('./pages/Login')")
+    expect(combined).not.toContain('path="/login"')
+    expect(combined).not.toContain('ProtectedRoute')
+    expect(combined).not.toContain('hasToken')
+    expect(combined).not.toContain('Navigate to="/login"')
+    expect(combined).not.toContain('logout')
   })
 
   it('removes the reset password page from the local bookkeeping app', () => {

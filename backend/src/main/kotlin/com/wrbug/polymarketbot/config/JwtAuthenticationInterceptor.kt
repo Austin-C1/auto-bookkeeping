@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.servlet.HandlerInterceptor
@@ -14,7 +15,9 @@ import org.springframework.web.servlet.HandlerInterceptor
 @Component
 class JwtAuthenticationInterceptor(
     private val jwtUtils: JwtUtils,
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    @Value("\${auto.bookkeeping.package.auth.enabled:\${odds.monitor.package.auth.enabled:true}}")
+    private val authEnabled: Boolean = true
 ) : HandlerInterceptor {
     
     private val logger = LoggerFactory.getLogger(JwtAuthenticationInterceptor::class.java)
@@ -31,6 +34,9 @@ class JwtAuthenticationInterceptor(
     ): Boolean {
         val path = request.requestURI
         if (!path.startsWith("/api/")) {
+            return true
+        }
+        if (!authEnabled) {
             return true
         }
         if (excludePaths.contains(path)) {

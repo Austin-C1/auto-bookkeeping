@@ -105,6 +105,8 @@ class UpdatePackageSafetyTest {
         assertTrue(script.contains("*serve-blackcat-frontend.ps1*"))
         assertTrue(script.contains("*start-telegram-bridge.ps1*"))
         assertTrue(script.contains("*telegram-bridge*server.mjs*"))
+        assertTrue(script.contains("auto-bookkeeping-backend-*.jar"))
+        assertTrue(script.contains("Remove-Item -LiteralPath"))
         assertTrue(script.contains("launch-blackcat.ps1"))
         assertTrue(script.contains("update-apply.log"))
         assertTrue(script.contains("Update failed"))

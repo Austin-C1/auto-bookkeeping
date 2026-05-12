@@ -192,6 +192,18 @@ object UpdateApplyScriptBuilder {
                   Copy-Item -LiteralPath ${'$'}dst -Destination ${'$'}backup -Recurse -Force
                 }
               }
+              ${'$'}backendJarsInUpdate = ${'$'}files | Where-Object { ${'$'}_ -like 'backend/build/libs/auto-bookkeeping-backend-*.jar' }
+              if (${'$'}backendJarsInUpdate) {
+                ${'$'}backendLibDir = Join-Path ${'$'}appRoot 'backend\build\libs'
+                if (Test-Path ${'$'}backendLibDir) {
+                  Get-ChildItem -LiteralPath ${'$'}backendLibDir -Filter 'auto-bookkeeping-backend-*.jar' -File -ErrorAction SilentlyContinue | ForEach-Object {
+                    ${'$'}relativeJar = 'backend/build/libs/' + ${'$'}_.Name
+                    if (${'$'}files -notcontains ${'$'}relativeJar) {
+                      Remove-Item -LiteralPath ${'$'}_.FullName -Force -ErrorAction SilentlyContinue
+                    }
+                  }
+                }
+              }
               Write-Status ${'$'}true 94 'Copying new files'
               foreach (${'$'}relative in ${'$'}files) {
                 ${'$'}src = Join-Path ${'$'}packageRoot ${'$'}relative

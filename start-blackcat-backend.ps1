@@ -1,20 +1,77 @@
-﻿$rootDir = (Resolve-Path (Split-Path -Parent $MyInvocation.MyCommand.Path)).Path
+$ErrorActionPreference = 'Stop'
+
+$rootDir = (Resolve-Path (Split-Path -Parent $MyInvocation.MyCommand.Path)).Path
 $backendDir = Join-Path $rootDir 'backend'
 $javaExe = Join-Path $rootDir '.tools\jdk-17.0.18+8\bin\java.exe'
-$jarFile = Get-ChildItem -Path (Join-Path $backendDir 'build\libs') -Filter 'auto-bookkeeping-backend-*.jar' -File |
-    Where-Object { $_.Name -notlike '*-plain.jar' } |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-$jarPath = if ($jarFile) { $jarFile.FullName } else { Join-Path $backendDir 'build\libs\auto-bookkeeping-backend.jar' }
 $outLog = Join-Path $rootDir 'backend-live.out.log'
 $errLog = Join-Path $rootDir 'backend-live.err.log'
 $localConfig = Join-Path $rootDir 'config\local.env.ps1'
+$frontendDistMarker = Join-Path $rootDir 'frontend\dist\.desktop-runtime.json'
+
+function Get-ExpectedBackendVersion {
+    if (Test-Path $frontendDistMarker) {
+        try {
+            $marker = Get-Content -Path $frontendDistMarker -Raw | ConvertFrom-Json
+            if (-not [string]::IsNullOrWhiteSpace($marker.version)) {
+                return ([string]$marker.version).Trim()
+            }
+        }
+        catch {
+        }
+    }
+
+    $packageJsonPath = Join-Path $rootDir 'frontend\package.json'
+    if (Test-Path $packageJsonPath) {
+        try {
+            $packageJson = Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json
+            if (-not [string]::IsNullOrWhiteSpace($packageJson.version)) {
+                return ([string]$packageJson.version).Trim()
+            }
+        }
+        catch {
+        }
+    }
+
+    return $null
+}
+
+function Get-BackendJarPath {
+    param([string]$expectedBackendVersion)
+
+    $libsDir = Join-Path $backendDir 'build\libs'
+    if (-not [string]::IsNullOrWhiteSpace($expectedBackendVersion)) {
+        $exactJarPath = Join-Path $libsDir "auto-bookkeeping-backend-$expectedBackendVersion.jar"
+        if (Test-Path $exactJarPath) {
+            return $exactJarPath
+        }
+    }
+
+    $jarFile = Get-ChildItem -Path $libsDir -Filter 'auto-bookkeeping-backend-*.jar' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike '*-plain.jar' } |
+        Sort-Object `
+            @{ Expression = {
+                $match = [regex]::Match($_.Name, '^auto-bookkeeping-backend-(\d+(?:\.\d+){0,3})\.jar$')
+                if ($match.Success) { [version]$match.Groups[1].Value } else { [version]'0.0.0' }
+            }; Descending = $true },
+            @{ Expression = { $_.LastWriteTime }; Descending = $true } |
+        Select-Object -First 1
+
+    if ($jarFile) {
+        return $jarFile.FullName
+    }
+
+    return Join-Path $libsDir 'auto-bookkeeping-backend.jar'
+}
+
+$expectedBackendVersion = Get-ExpectedBackendVersion
+$jarPath = Get-BackendJarPath -expectedBackendVersion $expectedBackendVersion
 
 $env:DB_URL = if ($env:DB_URL) { $env:DB_URL } else { 'jdbc:mysql://127.0.0.1:13307/blackcat_v1?useSSL=false&serverTimezone=UTC&characterEncoding=utf8&allowPublicKeyRetrieval=true' }
 $env:DB_USERNAME = if ($env:DB_USERNAME) { $env:DB_USERNAME } else { 'root' }
 $env:DB_PASSWORD = if ($env:DB_PASSWORD) { $env:DB_PASSWORD } else { 'change-me' }
 $env:JWT_SECRET = if ($env:JWT_SECRET) { $env:JWT_SECRET } else { 'change-me-change-me-change-me-change-me' }
 $env:ENCRYPTION_KEY = if ($env:ENCRYPTION_KEY) { $env:ENCRYPTION_KEY } else { 'change-me-change-me-change-me-change-me' }
+$env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED = if ($env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED) { $env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED } else { 'false' }
 $env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED = if ($env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED) { $env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED } else { 'true' }
 $env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME = if ($env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME) { $env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME } else { '123456' }
 $env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD = if ($env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD) { $env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD } else { '123456' }
@@ -42,6 +99,7 @@ function Set-TrimmedEnv {
     'DB_PASSWORD',
     'JWT_SECRET',
     'ENCRYPTION_KEY',
+    'AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED',
     'AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED',
     'AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME',
     'AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD',
@@ -68,11 +126,7 @@ if (-not (Test-Path $jarPath)) {
         Pop-Location
     }
 
-    $jarFile = Get-ChildItem -Path (Join-Path $backendDir 'build\libs') -Filter 'auto-bookkeeping-backend-*.jar' -File |
-        Where-Object { $_.Name -notlike '*-plain.jar' } |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-    $jarPath = if ($jarFile) { $jarFile.FullName } else { Join-Path $backendDir 'build\libs\auto-bookkeeping-backend.jar' }
+    $jarPath = Get-BackendJarPath -expectedBackendVersion $expectedBackendVersion
 }
 
 if (-not (Test-Path $jarPath)) {
@@ -100,7 +154,3 @@ try {
 finally {
     Pop-Location
 }
-
-
-
-

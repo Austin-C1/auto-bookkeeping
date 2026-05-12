@@ -1,6 +1,6 @@
 import { ReactNode, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Layout as AntLayout, Button, Drawer, Menu, Modal, Tag } from 'antd'
+import { Layout as AntLayout, Button, Drawer, Menu, Tag } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   CalculatorOutlined,
@@ -8,14 +8,13 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   FileExcelOutlined,
-  LogoutOutlined,
   MenuOutlined,
   MessageOutlined,
   ReconciliationOutlined,
   UserAddOutlined,
 } from '@ant-design/icons'
 import { useMediaQuery } from 'react-responsive'
-import { removeToken, getVersionInfo, getVersionText } from '../utils'
+import { getVersionInfo, getVersionText } from '../utils'
 
 const { Header, Content, Sider } = AntLayout
 
@@ -35,8 +34,6 @@ const menuItems: MenuProps['items'] = [
   { key: '/bookkeeping/rolling/reconciliation', icon: <ReconciliationOutlined />, label: '滚球对账中心' },
   { key: '/bookkeeping/excel', icon: <FileExcelOutlined />, label: '报表中心' },
   { key: '/bookkeeping/system/update', icon: <CloudUploadOutlined />, label: '系统更新' },
-  { type: 'divider' },
-  { key: 'logout', icon: <LogoutOutlined />, label: '退出登录' },
 ]
 
 const pageKeys = [
@@ -70,23 +67,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     return [selected || '/bookkeeping']
   }, [location.pathname])
 
-  const handleLogout = () => {
-    removeToken()
-    navigate('/login', { replace: true })
-  }
-
   const handleMenuClick = ({ key }: { key: string }) => {
-    if (key === 'logout') {
-      Modal.confirm({
-        title: '确认退出',
-        content: '退出后需要重新登录。',
-        okText: '确认',
-        cancelText: '取消',
-        onOk: handleLogout,
-      })
-      return
-    }
-
     navigate(key)
     if (isMobile) {
       setMobileMenuOpen(false)

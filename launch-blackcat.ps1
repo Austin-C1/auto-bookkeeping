@@ -5,7 +5,7 @@ $backendScript = Join-Path $rootDir 'start-blackcat-backend.ps1'
 $frontendDir = Join-Path $rootDir 'frontend'
 $frontendUrl = 'http://127.0.0.1:18880'
 $frontendAppUrl = "$frontendUrl/bookkeeping"
-$frontendApiReadyUrl = "$frontendUrl/api/auth/local-login"
+$frontendApiReadyUrl = "$frontendUrl/api/update/version"
 $databasePort = 13307
 $databaseContainerName = 'blackcat-v1-mysql'
 $databaseImage = 'mysql:8.1'
@@ -15,7 +15,7 @@ $databasePassword = 'change-me'
 $dockerDesktopExe = 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
 $backendPort = 18001
 $backendUrl = "http://127.0.0.1:$backendPort"
-$backendReadyUrl = "$backendUrl/api/auth/local-login"
+$backendReadyUrl = "$backendUrl/api/update/version"
 $frontendPort = 18880
 $backendStartupTimeoutSeconds = 180
 $frontendOutLog = Join-Path $rootDir 'frontend-live.out.log'
@@ -111,6 +111,34 @@ function Get-TrimmedString {
     return ([string]$Value).Trim()
 }
 
+function Get-ExpectedVersion {
+    if (Test-Path $frontendDistMarker) {
+        try {
+            $marker = Get-Content -Path $frontendDistMarker -Raw | ConvertFrom-Json
+            if (-not [string]::IsNullOrWhiteSpace($marker.version)) {
+                return ([string]$marker.version).Trim()
+            }
+        }
+        catch {
+        }
+    }
+
+    $packageJsonPath = Join-Path $frontendDir 'package.json'
+    if (Test-Path $packageJsonPath) {
+        try {
+            $packageJson = Get-Content -Path $packageJsonPath -Raw | ConvertFrom-Json
+            if (-not [string]::IsNullOrWhiteSpace($packageJson.version)) {
+                return ([string]$packageJson.version).Trim()
+            }
+        }
+        catch {
+        }
+    }
+
+    return $null
+}
+
+$expectedVersion = Get-ExpectedVersion
 $databaseContainerName = Get-TrimmedString $databaseContainerName
 $databaseImage = Get-TrimmedString $databaseImage
 $databaseVolumeName = Get-TrimmedString $databaseVolumeName
@@ -176,6 +204,49 @@ function Wait-HttpReady {
         catch {
         }
 
+        Start-Sleep -Seconds 1
+    }
+
+    return $false
+}
+
+function Test-BackendVersionReady {
+    param(
+        [string]$Url,
+        [string]$ExpectedVersion
+    )
+
+    try {
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5
+        if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
+            return $false
+        }
+
+        if ([string]::IsNullOrWhiteSpace($ExpectedVersion)) {
+            return $true
+        }
+
+        $payload = $response.Content | ConvertFrom-Json
+        $actualVersion = ([string]$payload.data.version).Trim()
+        return $actualVersion -eq $ExpectedVersion
+    }
+    catch {
+        return $false
+    }
+}
+
+function Wait-BackendVersionReady {
+    param(
+        [string]$Url,
+        [string]$ExpectedVersion,
+        [int]$TimeoutSeconds = 60
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-BackendVersionReady -Url $Url -ExpectedVersion $ExpectedVersion) {
+            return $true
+        }
         Start-Sleep -Seconds 1
     }
 
@@ -439,8 +510,8 @@ Invoke-LaunchStep 'Checking database' {
 }
 
 Invoke-LaunchStep 'Checking backend service' {
-    if ((Test-PortListening -Port $backendPort) -and -not (Test-PostReady -Url $backendReadyUrl)) {
-        Write-Status 'Backend port is occupied but unhealthy; restarting backend'
+    if ((Test-PortListening -Port $backendPort) -and -not (Test-BackendVersionReady -Url $backendReadyUrl -ExpectedVersion $expectedVersion)) {
+        Write-Status 'Backend port is occupied, unhealthy, or outdated; restarting backend'
         Stop-BlackcatBackendServer
         if (-not (Wait-PortFree -Port $backendPort -TimeoutSeconds 20)) {
             throw "Backend port $backendPort is still occupied."
@@ -454,13 +525,13 @@ Invoke-LaunchStep 'Checking backend service' {
             -WindowStyle Hidden | Out-Null
     }
 
-    if (-not (Wait-PostReady -Url $backendReadyUrl -TimeoutSeconds $backendStartupTimeoutSeconds)) {
-        throw "Backend did not become ready at $backendReadyUrl."
+    if (-not (Wait-BackendVersionReady -Url $backendReadyUrl -ExpectedVersion $expectedVersion -TimeoutSeconds $backendStartupTimeoutSeconds)) {
+        throw "Backend did not become ready with version $expectedVersion at $backendReadyUrl."
     }
 }
 
 Invoke-LaunchStep 'Checking frontend service' {
-    if ((Test-PortListening -Port $frontendPort) -and -not (Test-PostReady -Url $frontendApiReadyUrl)) {
+    if ((Test-PortListening -Port $frontendPort) -and -not (Test-BackendVersionReady -Url $frontendApiReadyUrl -ExpectedVersion $expectedVersion)) {
         Write-Status 'Frontend service is outdated or API proxy is unhealthy; restarting frontend'
         Stop-BlackcatFrontendServer
         if (-not (Wait-PortFree -Port $frontendPort -TimeoutSeconds 20)) {
@@ -496,7 +567,7 @@ Invoke-LaunchStep 'Checking frontend service' {
         throw "Frontend page did not become available at $frontendAppUrl."
     }
 
-    if (-not (Test-PostReady -Url $frontendApiReadyUrl)) {
+    if (-not (Test-BackendVersionReady -Url $frontendApiReadyUrl -ExpectedVersion $expectedVersion)) {
         throw "Frontend API proxy did not become ready at $frontendApiReadyUrl."
     }
 }

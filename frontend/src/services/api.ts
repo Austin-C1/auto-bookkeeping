@@ -122,9 +122,6 @@ const handleAuthError = (code: number) => {
     // 断开 WebSocket 连接
     notifyAuthExpired()
     // 跳转到登录页（避免循环跳转）
-    if (window.location.pathname !== '/login') {
-      window.location.href = '/login'
-    }
   }
 }
 
@@ -214,12 +211,6 @@ export const apiService = {
     /**
      * 登录
      */
-    login: (data: { username: string; password: string }) =>
-      apiClient.post<ApiResponse<{ token: string }>>('/auth/login', data),
-
-    localLogin: () =>
-      apiClient.post<ApiResponse<{ token: string }>>('/auth/local-login', {}),
-
     /**
      * 获取 WebSocket 连接票据
      * 返回一个短期有效（30秒）的一次性票据

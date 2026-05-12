@@ -55,8 +55,18 @@ Assert-NotContains `
 
 Assert-Contains `
     -Content $startScript `
-    -Needle "Get-ChildItem -Path (Join-Path `$backendDir 'build\libs') -Filter 'auto-bookkeeping-backend-*.jar'" `
-    -Message 'start-blackcat-backend.ps1 must discover the packaged backend jar dynamically.'
+    -Needle "Get-ExpectedBackendVersion" `
+    -Message 'start-blackcat-backend.ps1 must read the packaged version before choosing the backend jar.'
+
+Assert-Contains `
+    -Content $startScript `
+    -Needle "auto-bookkeeping-backend-`$expectedBackendVersion.jar" `
+    -Message 'start-blackcat-backend.ps1 must prefer the exact backend jar for the packaged version.'
+
+Assert-Contains `
+    -Content $startScript `
+    -Needle "`$env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED" `
+    -Message 'start-blackcat-backend.ps1 must disable packaged local authentication.'
 
 Assert-Contains `
     -Content $startScript `

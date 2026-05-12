@@ -7,12 +7,12 @@ const root = join(process.cwd(), '..')
 const readRootFile = (path: string) => readFileSync(join(root, path), 'utf8')
 
 describe('packaged BlackCat launcher', () => {
-  it('ships the requested 1.1.0 version consistently', () => {
+  it('ships the requested 1.1.1 version consistently', () => {
     const frontendPackage = JSON.parse(readRootFile('frontend/package.json')) as { version: string }
     const backendBuild = readRootFile('backend/build.gradle.kts')
 
-    expect(frontendPackage.version).toBe('1.1.0')
-    expect(backendBuild).toContain('version = "1.1.0"')
+    expect(frontendPackage.version).toBe('1.1.1')
+    expect(backendBuild).toContain('version = "1.1.1"')
   })
 
   it('removes the old reset password and first-use backend flow from packaged sources', () => {
@@ -35,8 +35,7 @@ describe('packaged BlackCat launcher', () => {
       appProperties
     ].join('\n')
 
-    expect(launchScript).toContain('/api/auth/local-login')
-    expect(oddsLaunchScript).toContain('/api/auth/local-login')
+    expect(launchScript).toContain('/api/update/version')
     expect(combined).not.toContain('reset-password')
     expect(combined).not.toContain('check-first-use')
     expect(combined).not.toContain('ResetPasswordRequest')
@@ -51,6 +50,8 @@ describe('packaged BlackCat launcher', () => {
 
     expect(launchScript).toContain("$frontendUrl = 'http://127.0.0.1:18880'")
     expect(launchScript).toContain('$frontendAppUrl = "$frontendUrl/bookkeeping"')
+    expect(launchScript).toContain('$expectedVersion = Get-ExpectedVersion')
+    expect(launchScript).toContain('Test-BackendVersionReady')
     expect(launchScript).toContain("scripts\\serve-blackcat-frontend.ps1")
     expect(launchScript).toContain("Write-Status 'Opening bookkeeping page'")
     expect(launchScript).toContain('Start-Process $frontendAppUrl')
@@ -73,10 +74,10 @@ describe('packaged BlackCat launcher', () => {
     expect(updatePackageScript).toContain('& $frontendBuildScript')
   })
 
-  it('keeps local accounts, group settings, and login sessions out of update packages', () => {
+  it('keeps local accounts, group settings, and local data out of update packages', () => {
     const updatePackageScript = readRootFile('build-blackcat-update-package.ps1')
 
-    expect(updatePackageScript).toContain("'local login'")
+    expect(updatePackageScript).toContain("'local configuration'")
     expect(updatePackageScript).toContain("'crown accounts'")
     expect(updatePackageScript).toContain("'upstream and downstream groups'")
     expect(updatePackageScript).toContain("'WhatsApp session'")
@@ -100,6 +101,10 @@ describe('packaged BlackCat launcher', () => {
     const backendStartScript = readRootFile('start-blackcat-backend.ps1')
     const authService = readRootFile('backend/src/main/kotlin/com/wrbug/polymarketbot/service/auth/AuthService.kt')
 
+    expect(backendStartScript).toContain("AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED")
+    expect(backendStartScript).toContain("'false'")
+    expect(backendStartScript).toContain('Get-ExpectedBackendVersion')
+    expect(backendStartScript).toContain('auto-bookkeeping-backend-$expectedBackendVersion.jar')
     expect(backendStartScript).toContain('AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED')
     expect(backendStartScript).toContain('AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME')
     expect(backendStartScript).toContain('AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD')
@@ -116,7 +121,7 @@ describe('packaged BlackCat launcher', () => {
     expect(emptyPackageScript).toContain('open-blackcat-frontend.cmd')
     expect(updatePackageScript).toContain('open-blackcat-frontend.cmd')
     expect(packageGuide).toContain('http://127.0.0.1:18880/bookkeeping')
-    expect(packageGuide).toContain('默认免密进入')
+    expect(packageGuide).toContain('没有登录页')
     expect(packageGuide).not.toContain('http://127.0.0.1:18880/login')
     expect(packageGuide).not.toContain('创建你自己的账号和密码')
   })
