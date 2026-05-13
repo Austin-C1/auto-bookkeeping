@@ -1,9 +1,7 @@
 # v1.1.2
 
-- Removed unrelated frontend and backend features instead of only hiding their routes.
-- Removed unrelated legacy modules instead of only hiding their entry points.
-- Trimmed frontend and backend dependencies to the bookkeeping runtime.
-- Removed stale source tests and package checks that referenced deleted features.
-- Removed obsolete package scripts and local generated artifacts.
-- Kept database migration history so installed users can still update safely.
-- Verified local launch at `http://127.0.0.1:18880/bookkeeping` with no password, reset, missing-auth, or network blocking page.
+- 删除旧的登录页、密码页、重置密码页和认证拦截，不再只是隐藏入口。
+- 删除跟自动做账无关的前端页面、后端接口、旧脚本和旧说明。
+- 保留自动做账需要的 Crown、WhatsApp、Telegram、表格生成和远程更新功能。
+- 空白安装包和更新包都已重新打包。
+- 本地已验证：打开 `http://127.0.0.1:18880/bookkeeping` 直接进入系统，没有密码页、缺少认证或 Network Error 阻挡页。
