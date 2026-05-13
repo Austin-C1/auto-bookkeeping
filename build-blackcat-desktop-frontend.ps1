@@ -5,7 +5,6 @@ $markerPath = Join-Path $distDir '.desktop-runtime.json'
 $frontendPackageJsonPath = Join-Path $frontendDir 'package.json'
 $backendBuildFilePath = Join-Path $rootDir 'backend\build.gradle.kts'
 $apiUrl = 'http://127.0.0.1:18001'
-$wsUrl = 'ws://127.0.0.1:18001'
 
 function Get-VersionFromBuildFiles {
     $frontendVersion = (Get-Content -Path $frontendPackageJsonPath -Raw | ConvertFrom-Json).version
@@ -33,7 +32,6 @@ $version = Get-VersionFromBuildFiles
 Push-Location $frontendDir
 try {
     $env:VITE_API_URL = $apiUrl
-    $env:VITE_WS_URL = $wsUrl
     $env:VERSION = $version
     $env:GIT_TAG = "v$version"
     $env:GITHUB_REPO_URL = 'https://github.com/Austin-C1/auto-bookkeeping'
@@ -50,7 +48,6 @@ try {
     $marker = [ordered]@{
         mode = 'desktop-static'
         apiUrl = $apiUrl
-        wsUrl = $wsUrl
         version = $version
         gitTag = "v$version"
         githubRepoUrl = 'https://github.com/Austin-C1/auto-bookkeeping'
@@ -61,7 +58,6 @@ try {
 }
 finally {
     Remove-Item Env:VITE_API_URL -ErrorAction SilentlyContinue
-    Remove-Item Env:VITE_WS_URL -ErrorAction SilentlyContinue
     Remove-Item Env:VERSION -ErrorAction SilentlyContinue
     Remove-Item Env:GIT_TAG -ErrorAction SilentlyContinue
     Remove-Item Env:GITHUB_REPO_URL -ErrorAction SilentlyContinue

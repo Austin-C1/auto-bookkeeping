@@ -25,12 +25,6 @@ class ApiErrorHttpStatusAdviceTest {
     }
 
     @Test
-    fun `maps permission errors to 403`() {
-        mockMvc.perform(get("/api/test/forbidden"))
-            .andExpect(status().isForbidden)
-    }
-
-    @Test
     fun `maps not found errors to 404`() {
         mockMvc.perform(get("/api/test/not-found"))
             .andExpect(status().isNotFound)
@@ -48,11 +42,6 @@ class ApiErrorHttpStatusAdviceTest {
         @GetMapping("/api/test/param-error")
         fun paramError(): ResponseEntity<ApiResponse<Unit>> {
             return ResponseEntity.ok(ApiResponse.error(ErrorCode.PARAM_ERROR, "bad request"))
-        }
-
-        @GetMapping("/api/test/forbidden")
-        fun forbidden(): ResponseEntity<ApiResponse<Unit>> {
-            return ResponseEntity.ok(ApiResponse.error(ErrorCode.AUTH_PERMISSION_DENIED, "forbidden"))
         }
 
         @GetMapping("/api/test/not-found")

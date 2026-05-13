@@ -9,14 +9,12 @@ import com.wrbug.polymarketbot.entity.BookkeepingReconciliationResult
 import com.wrbug.polymarketbot.entity.BookkeepingTask
 import com.wrbug.polymarketbot.entity.BookkeepingWhatsappGroup
 import com.wrbug.polymarketbot.entity.BookkeepingWhatsappOrder
-import com.wrbug.polymarketbot.entity.OddsDataSourceConfig
 import com.wrbug.polymarketbot.repository.BookkeepingCrownAccountRepository
 import com.wrbug.polymarketbot.repository.BookkeepingCrownWagerRepository
 import com.wrbug.polymarketbot.repository.BookkeepingTaskRepository
 import com.wrbug.polymarketbot.repository.BookkeepingWhatsappGroupRepository
 import com.wrbug.polymarketbot.repository.BookkeepingWhatsappOrderRepository
 import com.wrbug.polymarketbot.repository.BookkeepingReconciliationResultRepository
-import com.wrbug.polymarketbot.service.oddsmonitor.collector.crown.CrownApiClient
 import com.wrbug.polymarketbot.util.CryptoUtils
 import com.wrbug.polymarketbot.util.toJson
 import org.springframework.stereotype.Service
@@ -45,7 +43,7 @@ class BookkeepingService(
     private val whatsappOrderRepository: BookkeepingWhatsappOrderRepository,
     private val taskRepository: BookkeepingTaskRepository,
     private val reconciliationRepository: BookkeepingReconciliationResultRepository,
-    private val crownApiClient: CrownApiClient,
+    private val crownLoginClient: CrownLoginClient,
     private val cryptoUtils: CryptoUtils,
     private val calculator: BookkeepingCalculator,
     private val excelReportWriter: BookkeepingExcelReportWriter,
@@ -191,14 +189,12 @@ class BookkeepingService(
         val password = account.password?.takeIf { it.isNotBlank() }?.let { decryptCrownPassword(it) }
             ?: throw IllegalArgumentException("Crown account password is empty")
         val result = runCatching {
-            crownApiClient.login(
-                OddsDataSourceConfig(
-                    sourceKey = "crown",
+            crownLoginClient.login(
+                CrownLoginConfig(
                     displayName = account.displayName,
-                    enabled = true,
                     username = account.username,
                     password = password,
-                    queryKeyword = account.baseUrl
+                    baseUrl = account.baseUrl
                 )
             )
         }

@@ -144,7 +144,7 @@ $databaseImage = Get-TrimmedString $databaseImage
 $databaseVolumeName = Get-TrimmedString $databaseVolumeName
 $databaseName = Get-TrimmedString $databaseName
 $databasePassword = ([string]$databasePassword).Trim()
-@('DB_URL', 'DB_USERNAME', 'DB_PASSWORD', 'JWT_SECRET', 'ENCRYPTION_KEY') |
+@('DB_URL', 'DB_USERNAME', 'DB_PASSWORD', 'ENCRYPTION_KEY') |
     ForEach-Object { Set-TrimmedEnv -Name $_ }
 
 function Test-PortListening {
@@ -356,7 +356,7 @@ function Test-DesktopFrontendBuildAvailable {
     if (Test-Path $frontendDistMarker) {
         try {
             $marker = Get-Content -Path $frontendDistMarker -Raw | ConvertFrom-Json
-            if ($marker.apiUrl -ne "http://127.0.0.1:$BackendPort" -or $marker.wsUrl -ne "ws://127.0.0.1:$BackendPort") {
+            if ($marker.apiUrl -ne "http://127.0.0.1:$BackendPort") {
                 return $false
             }
         }

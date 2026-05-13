@@ -15,7 +15,7 @@ class HealthController {
         return ResponseEntity.ok(mapOf(
             "status" to "UP",
             "timestamp" to System.currentTimeMillis(),
-            "service" to "OddsMonitor-v1-backend"
+            "service" to "auto-bookkeeping-backend"
         ))
     }
 }

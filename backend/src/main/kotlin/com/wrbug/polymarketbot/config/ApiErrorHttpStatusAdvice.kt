@@ -1,7 +1,6 @@
 package com.wrbug.polymarketbot.config
 
 import com.wrbug.polymarketbot.dto.ApiResponse
-import com.wrbug.polymarketbot.enums.ErrorCode
 import org.springframework.core.MethodParameter
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
@@ -45,32 +44,11 @@ class ApiErrorHttpStatusAdvice : ResponseBodyAdvice<Any> {
     internal fun resolveStatus(code: Int): HttpStatus? {
         return when {
             code in 400..599 -> HttpStatus.resolve(code)
-            code == ErrorCode.AUTH_PERMISSION_DENIED.code -> HttpStatus.FORBIDDEN
             code in 1001..1999 -> HttpStatus.BAD_REQUEST
-            code in 2001..2999 -> HttpStatus.UNAUTHORIZED
             code in 3001..3999 -> HttpStatus.NOT_FOUND
             code in 5001..5999 -> HttpStatus.INTERNAL_SERVER_ERROR
-            code in 4001..4999 -> resolveBusinessStatus(code)
+            code in 4001..4999 -> HttpStatus.BAD_REQUEST
             else -> null
-        }
-    }
-
-    private fun resolveBusinessStatus(code: Int): HttpStatus {
-        return when (code) {
-            ErrorCode.LEADER_ALREADY_EXISTS.code,
-            ErrorCode.LEADER_HAS_COPY_TRADINGS.code,
-            ErrorCode.TEMPLATE_NAME_ALREADY_EXISTS.code,
-            ErrorCode.TEMPLATE_HAS_COPY_TRADINGS.code,
-            ErrorCode.COPY_TRADING_ALREADY_EXISTS.code,
-            ErrorCode.COPY_TRADING_DISABLED.code,
-            ErrorCode.COPY_TRADING_ENABLED.code,
-            ErrorCode.ACCOUNT_ALREADY_EXISTS.code,
-            ErrorCode.ACCOUNT_IS_DEFAULT.code,
-            ErrorCode.ACCOUNT_HAS_ACTIVE_ORDERS.code,
-            ErrorCode.ACCOUNT_IS_LAST_ONE.code,
-            ErrorCode.BACKTEST_TASK_RUNNING.code,
-            ErrorCode.BACKTEST_TASK_NOT_COMPLETED.code -> HttpStatus.CONFLICT
-            else -> HttpStatus.BAD_REQUEST
         }
     }
 }

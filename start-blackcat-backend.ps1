@@ -69,14 +69,8 @@ $jarPath = Get-BackendJarPath -expectedBackendVersion $expectedBackendVersion
 $env:DB_URL = if ($env:DB_URL) { $env:DB_URL } else { 'jdbc:mysql://127.0.0.1:13307/blackcat_v1?useSSL=false&serverTimezone=UTC&characterEncoding=utf8&allowPublicKeyRetrieval=true' }
 $env:DB_USERNAME = if ($env:DB_USERNAME) { $env:DB_USERNAME } else { 'root' }
 $env:DB_PASSWORD = if ($env:DB_PASSWORD) { $env:DB_PASSWORD } else { 'change-me' }
-$env:JWT_SECRET = if ($env:JWT_SECRET) { $env:JWT_SECRET } else { 'change-me-change-me-change-me-change-me' }
 $env:ENCRYPTION_KEY = if ($env:ENCRYPTION_KEY) { $env:ENCRYPTION_KEY } else { 'change-me-change-me-change-me-change-me' }
-$env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED = if ($env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED) { $env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED } else { 'false' }
-$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED = if ($env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED) { $env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED } else { 'true' }
-$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME = if ($env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME) { $env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME } else { '123456' }
-$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD = if ($env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD) { $env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD } else { '123456' }
 $env:CORS_ALLOWED_ORIGINS = if ($env:CORS_ALLOWED_ORIGINS) { $env:CORS_ALLOWED_ORIGINS } else { 'http://127.0.0.1:18880,http://localhost:18880,http://127.0.0.1:18882,http://localhost:18882' }
-$env:WEBSOCKET_ALLOWED_ORIGINS = if ($env:WEBSOCKET_ALLOWED_ORIGINS) { $env:WEBSOCKET_ALLOWED_ORIGINS } else { 'http://127.0.0.1:18880,http://localhost:18880,http://127.0.0.1:18882,http://localhost:18882' }
 $env:SPRING_PROFILES_ACTIVE = 'prod'
 $env:SERVER_PORT = '18001'
 
@@ -97,14 +91,8 @@ function Set-TrimmedEnv {
     'DB_URL',
     'DB_USERNAME',
     'DB_PASSWORD',
-    'JWT_SECRET',
     'ENCRYPTION_KEY',
-    'AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED',
-    'AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED',
-    'AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME',
-    'AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD',
-    'CORS_ALLOWED_ORIGINS',
-    'WEBSOCKET_ALLOWED_ORIGINS'
+    'CORS_ALLOWED_ORIGINS'
 ) |
     ForEach-Object { Set-TrimmedEnv -Name $_ }
 

@@ -12,7 +12,6 @@ $packageTemplateDir = Join-Path $rootDir 'packaging\blackcat-empty-package'
 $readmeTemplatePath = Join-Path $packageTemplateDir 'README-template.txt'
 $dockerGuideTemplatePath = Join-Path $packageTemplateDir 'docker-install-template.md'
 $usageGuideTemplatePath = Join-Path $packageTemplateDir 'package-start-template.md'
-$versionGuidePath = Join-Path $rootDir 'docs\zh\AutoBookkeeping-v1.1.1-install-and-use.md'
 $packageDatabasePort = 23307
 $packageDatabasePassword = $null
 $packageDatabaseName = 'blackcat_v1'
@@ -126,6 +125,7 @@ function Render-TemplateFile {
 }
 
 $version = Get-VersionFromBuildFiles
+$versionGuidePath = Join-Path $rootDir "docs\zh\AutoBookkeeping-v$version-install-and-use.md"
 $packageDatabasePassword = New-RandomHex -Length 32
 $packageSlug = "auto-bookkeeping-empty-v$version"
 $packageDirName = "AutoBookkeeping-Blank-v$version"
@@ -186,7 +186,7 @@ Copy-Item -LiteralPath (Join-Path $rootDir 'start-blackcat-backend.cmd') -Destin
 Copy-Item -LiteralPath (Join-Path $rootDir 'start-telegram-bridge.ps1') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'start-telegram-bridge.cmd') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'scripts\serve-blackcat-frontend.ps1') -Destination (Join-Path $packageDir 'scripts') -Force
-Copy-Item -LiteralPath $versionGuidePath -Destination (Join-Path $packageDir 'AutoBookkeeping-v1.1.1-install-and-use.md') -Force
+Copy-Item -LiteralPath $versionGuidePath -Destination (Join-Path $packageDir "AutoBookkeeping-v$version-install-and-use.md") -Force
 New-Item -ItemType Directory -Path (Join-Path $packageDir 'telegram-bridge') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $rootDir 'telegram-bridge\package.json') -Destination (Join-Path $packageDir 'telegram-bridge') -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'telegram-bridge\package-lock.json') -Destination (Join-Path $packageDir 'telegram-bridge') -Force
@@ -206,10 +206,6 @@ Replace-ExactText -Path $packageLaunchScriptPath -Replacements @{
 
 Replace-ExactText -Path $packageBackendScriptPath -Replacements @{
     "127.0.0.1:13307" = "127.0.0.1:$packageDatabasePort"
-    "`$env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED = if (`$env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED) { `$env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED } else { 'false' }" = "`$env:AUTO_BOOKKEEPING_PACKAGE_AUTH_ENABLED = 'false'"
-    "`$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED = if (`$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED) { `$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED } else { 'true' }" = "`$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_ENABLED = 'true'"
-    "`$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME = if (`$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME) { `$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME } else { '123456' }" = "`$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_USERNAME = '123456'"
-    "`$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD = if (`$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD) { `$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD } else { '123456' }" = "`$env:AUTO_BOOKKEEPING_PACKAGE_DEFAULT_ADMIN_PASSWORD = '123456'"
 }
 
 $templateVariables = @{

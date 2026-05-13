@@ -35,16 +35,12 @@ object UpdatePackageSafety {
         "telegram-bridge/package.json",
         "telegram-bridge/package-lock.json",
         "telegram-bridge/server.mjs",
-        "launch-odds-monitor.ps1",
-        "launch-odds-monitor.cmd",
-        "start-odds-backend.ps1",
-        "start-odds-backend.cmd"
+        "scripts/serve-blackcat-frontend.ps1"
     )
 
     private val allowedPrefixes = listOf(
         "backend/build/libs/",
-        "frontend/dist/",
-        "scripts/"
+        "frontend/dist/"
     )
 
     private val protectedPrefixes = listOf(
@@ -130,7 +126,7 @@ object GitHubReleaseApiUrlBuilder {
     }
 }
 
-object OddsMonitorUpdateDefaults {
+object AutoBookkeepingUpdateDefaults {
     const val GITHUB_REPO = "Austin-C1/auto-bookkeeping"
 }
 
@@ -350,18 +346,15 @@ class GitHubUpdateService(
 
     private fun releaseApiUrl(): String? {
         System.getenv("AUTO_BOOKKEEPING_UPDATE_RELEASE_API_URL")?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
-        System.getenv("ODDS_MONITOR_UPDATE_RELEASE_API_URL")?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         updateConfig()?.get("releaseApiUrl")?.asText()?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
         val repo = System.getenv("AUTO_BOOKKEEPING_GITHUB_REPO")?.trim()?.takeIf { it.isNotBlank() }
-            ?: System.getenv("ODDS_MONITOR_GITHUB_REPO")?.trim()?.takeIf { it.isNotBlank() }
             ?: updateConfig()?.get("githubRepo")?.asText()?.trim()?.takeIf { it.isNotBlank() }
-            ?: OddsMonitorUpdateDefaults.GITHUB_REPO
+            ?: AutoBookkeepingUpdateDefaults.GITHUB_REPO
         return GitHubReleaseApiUrlBuilder.latestReleaseApiUrl(repo)
     }
 
     private fun githubToken(): String? {
         return System.getenv("AUTO_BOOKKEEPING_GITHUB_TOKEN")?.trim()?.takeIf { it.isNotBlank() }
-            ?: System.getenv("ODDS_MONITOR_GITHUB_TOKEN")?.trim()?.takeIf { it.isNotBlank() }
             ?: System.getenv("GITHUB_TOKEN")?.trim()?.takeIf { it.isNotBlank() }
             ?: updateConfig()?.get("githubToken")?.asText()?.trim()?.takeIf { it.isNotBlank() }
     }
@@ -466,7 +459,7 @@ class GitHubUpdateService(
     }
 
     private fun appRoot(): Path {
-        System.getenv("ODDS_MONITOR_APP_ROOT")?.trim()?.takeIf { it.isNotBlank() }?.let { return Path.of(it).toAbsolutePath().normalize() }
+        System.getenv("AUTO_BOOKKEEPING_APP_ROOT")?.trim()?.takeIf { it.isNotBlank() }?.let { return Path.of(it).toAbsolutePath().normalize() }
         val userDir = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize()
         return if (userDir.fileName?.toString() == "backend") userDir.parent else userDir
     }

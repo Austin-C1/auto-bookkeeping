@@ -444,7 +444,6 @@ class BookkeepingFoundationTest {
     @Test
     fun `backend start script writes logs as utf8`() {
         listOf(
-            "../start-odds-backend.ps1",
             "../start-blackcat-backend.ps1"
         ).forEach { scriptPath ->
             val script = Files.readString(Path.of(scriptPath))

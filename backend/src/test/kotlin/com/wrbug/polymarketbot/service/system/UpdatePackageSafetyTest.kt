@@ -14,7 +14,6 @@ class UpdatePackageSafetyTest {
         assertTrue(UpdatePackageSafety.isAllowedProgramPath("frontend/dist/index.html"))
         assertTrue(UpdatePackageSafety.isAllowedProgramPath("frontend/dist/assets/index.js"))
         assertTrue(UpdatePackageSafety.isAllowedProgramPath("scripts/serve-blackcat-frontend.ps1"))
-        assertTrue(UpdatePackageSafety.isAllowedProgramPath("scripts/serve-odds-frontend.ps1"))
         assertTrue(UpdatePackageSafety.isAllowedProgramPath("launch-blackcat.ps1"))
         assertTrue(UpdatePackageSafety.isAllowedProgramPath("launch-blackcat.cmd"))
         assertTrue(UpdatePackageSafety.isAllowedProgramPath("open-blackcat-frontend.ps1"))
@@ -61,7 +60,7 @@ class UpdatePackageSafetyTest {
     @Test
     fun `default update repository points to auto bookkeeping releases`() {
         assertTrue(
-            GitHubReleaseApiUrlBuilder.latestReleaseApiUrl(OddsMonitorUpdateDefaults.GITHUB_REPO)
+            GitHubReleaseApiUrlBuilder.latestReleaseApiUrl(AutoBookkeepingUpdateDefaults.GITHUB_REPO)
                 .endsWith("/Austin-C1/auto-bookkeeping/releases/latest")
         )
     }
