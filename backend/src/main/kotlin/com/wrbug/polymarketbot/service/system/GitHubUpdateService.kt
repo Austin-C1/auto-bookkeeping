@@ -30,6 +30,10 @@ object UpdatePackageSafety {
         "open-blackcat-frontend.cmd",
         "start-blackcat-backend.ps1",
         "start-blackcat-backend.cmd",
+        "start-whatsapp-bridge.ps1",
+        "whatsapp-bridge/package.json",
+        "whatsapp-bridge/package-lock.json",
+        "whatsapp-bridge/server.mjs",
         "start-telegram-bridge.ps1",
         "start-telegram-bridge.cmd",
         "telegram-bridge/package.json",
@@ -175,6 +179,8 @@ object UpdateApplyScriptBuilder {
               Stop-Process -Id $backendPid -Force -ErrorAction SilentlyContinue
               Stop-MatchingProcesses '*auto-bookkeeping-backend*'
               Stop-MatchingProcesses '*serve-blackcat-frontend.ps1*'
+              Stop-MatchingProcesses '*start-whatsapp-bridge.ps1*'
+              Stop-MatchingProcesses '*whatsapp-bridge*server.mjs*'
               Stop-MatchingProcesses '*start-telegram-bridge.ps1*'
               Stop-MatchingProcesses '*telegram-bridge*server.mjs*'
               New-Item -ItemType Directory -Path ${'$'}backupRoot -Force | Out-Null

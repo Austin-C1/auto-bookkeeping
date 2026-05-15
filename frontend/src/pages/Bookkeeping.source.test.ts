@@ -64,4 +64,9 @@ describe('bookkeeping frontend source', () => {
     expect(api).toContain('/bookkeeping/tasks/generated-files/clear')
     expect(api).toContain('/bookkeeping/tasks/${taskId}/download')
   })
+
+  it('polls WhatsApp login status until the QR login state settles', () => {
+    expect(page).toContain("pageKey !== 'whatsappGroups' || !['starting', 'qr_required', 'authenticated'].includes(whatsappStatus?.status || '')")
+    expect(page).toContain('loadWhatsappStatus()')
+  })
 })

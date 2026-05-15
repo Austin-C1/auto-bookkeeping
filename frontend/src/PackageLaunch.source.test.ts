@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const root = join(process.cwd(), '..')
@@ -7,12 +7,12 @@ const root = join(process.cwd(), '..')
 const readRootFile = (path: string) => readFileSync(join(root, path), 'utf8')
 
 describe('packaged BlackCat launcher', () => {
-  it('ships the requested 1.1.2 version consistently', () => {
+  it('ships the requested 1.1.3 version consistently', () => {
     const frontendPackage = JSON.parse(readRootFile('frontend/package.json')) as { version: string }
     const backendBuild = readRootFile('backend/build.gradle.kts')
 
-    expect(frontendPackage.version).toBe('1.1.2')
-    expect(backendBuild).toContain('version = "1.1.2"')
+    expect(frontendPackage.version).toBe('1.1.3')
+    expect(backendBuild).toContain('version = "1.1.3"')
   })
 
   it('opens the bookkeeping workspace directly through the BlackCat frontend', () => {
@@ -65,6 +65,36 @@ describe('packaged BlackCat launcher', () => {
     expect(backendStartScript).toContain('DB_URL')
     expect(backendStartScript).toContain('ENCRYPTION_KEY')
     expect(backendStartScript).toContain('CORS_ALLOWED_ORIGINS')
+  })
+
+  it('starts the WhatsApp bridge from the packaged launcher', () => {
+    expect(existsSync(join(root, 'start-whatsapp-bridge.ps1'))).toBe(true)
+
+    const launchScript = readRootFile('launch-blackcat.ps1')
+    const whatsappStartScript = readRootFile('start-whatsapp-bridge.ps1')
+    const emptyPackageScript = readRootFile('build-blackcat-empty-package.ps1')
+    const updatePackageScript = readRootFile('build-blackcat-update-package.ps1')
+
+    expect(launchScript).toContain("$whatsappBridgeScript = Join-Path $rootDir 'start-whatsapp-bridge.ps1'")
+    expect(launchScript).toContain('$whatsappBridgePort = 18883')
+    expect(launchScript).toContain('Ensure-WhatsappBridgeFiles')
+    expect(launchScript).toContain("whatsapp-web.js")
+    expect(launchScript).toContain("Invoke-LaunchStep 'Checking WhatsApp service'")
+    expect(launchScript).toContain("'-File', $whatsappBridgeScript")
+    expect(whatsappStartScript).toContain("$bridgeDir = Join-Path $rootDir 'whatsapp-bridge'")
+    expect(whatsappStartScript).toContain('$env:WHATSAPP_BRIDGE_PORT')
+    expect(emptyPackageScript).toContain("'start-whatsapp-bridge.ps1'")
+    expect(emptyPackageScript).toContain("'whatsapp-bridge\\server.mjs'")
+    expect(updatePackageScript).not.toContain("Copy-RequiredFile -Source (Join-Path $rootDir 'start-whatsapp-bridge.ps1')")
+    expect(updatePackageScript).not.toContain("Copy-RequiredFile -Source (Join-Path $rootDir 'whatsapp-bridge\\server.mjs')")
+    expect(updatePackageScript).not.toContain('AutoBookkeeping-v$version-install-and-use.md')
+  })
+
+  it('allows the WhatsApp browser enough time to start for QR login', () => {
+    const whatsappServer = readRootFile('whatsapp-bridge/server.mjs')
+
+    expect(whatsappServer).toContain('timeout: 90_000')
+    expect(whatsappServer).toContain('protocolTimeout: 90_000')
   })
 
   it('packages the frontend quick launcher and current start guide', () => {

@@ -583,6 +583,14 @@ const Bookkeeping = () => {
   }, [pageKey])
 
   useEffect(() => {
+    if (pageKey !== 'whatsappGroups' || !['starting', 'qr_required', 'authenticated'].includes(whatsappStatus?.status || '')) return
+    const timer = window.setInterval(() => {
+      loadWhatsappStatus()
+    }, 10000)
+    return () => window.clearInterval(timer)
+  }, [pageKey, whatsappStatus?.status])
+
+  useEffect(() => {
     if (pageKey !== 'telegramGroups' || telegramStatus?.status !== 'qr_required') return
     const timer = window.setInterval(() => {
       loadTelegramStatus()

@@ -98,6 +98,8 @@ const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'blackcat-bookkeeping' }),
   puppeteer: {
     headless: true,
+    timeout: 90_000,
+    protocolTimeout: 90_000,
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
   },
 })

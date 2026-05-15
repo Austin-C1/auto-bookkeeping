@@ -183,10 +183,15 @@ Copy-Item -LiteralPath (Join-Path $rootDir 'open-blackcat-frontend.ps1') -Destin
 Copy-Item -LiteralPath (Join-Path $rootDir 'open-blackcat-frontend.cmd') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'start-blackcat-backend.ps1') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'start-blackcat-backend.cmd') -Destination $packageDir -Force
+Copy-Item -LiteralPath (Join-Path $rootDir 'start-whatsapp-bridge.ps1') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'start-telegram-bridge.ps1') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'start-telegram-bridge.cmd') -Destination $packageDir -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'scripts\serve-blackcat-frontend.ps1') -Destination (Join-Path $packageDir 'scripts') -Force
 Copy-Item -LiteralPath $versionGuidePath -Destination (Join-Path $packageDir "AutoBookkeeping-v$version-install-and-use.md") -Force
+New-Item -ItemType Directory -Path (Join-Path $packageDir 'whatsapp-bridge') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $rootDir 'whatsapp-bridge\package.json') -Destination (Join-Path $packageDir 'whatsapp-bridge') -Force
+Copy-Item -LiteralPath (Join-Path $rootDir 'whatsapp-bridge\package-lock.json') -Destination (Join-Path $packageDir 'whatsapp-bridge') -Force
+Copy-Item -LiteralPath (Join-Path $rootDir 'whatsapp-bridge\server.mjs') -Destination (Join-Path $packageDir 'whatsapp-bridge') -Force
 New-Item -ItemType Directory -Path (Join-Path $packageDir 'telegram-bridge') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $rootDir 'telegram-bridge\package.json') -Destination (Join-Path $packageDir 'telegram-bridge') -Force
 Copy-Item -LiteralPath (Join-Path $rootDir 'telegram-bridge\package-lock.json') -Destination (Join-Path $packageDir 'telegram-bridge') -Force

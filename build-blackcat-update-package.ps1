@@ -55,7 +55,6 @@ function Write-Utf8File {
 }
 
 $version = Get-VersionFromBuildFiles
-$versionGuidePath = Join-Path $rootDir "docs\zh\AutoBookkeeping-v$version-install-and-use.md"
 $packageDirName = "auto-bookkeeping-update-v$version"
 $packageDir = Join-Path $desktopDir $packageDirName
 $zipPath = Join-Path $desktopDir "$packageDirName.zip"
@@ -105,7 +104,6 @@ Copy-RequiredFile -Source (Join-Path $rootDir 'start-blackcat-backend.cmd') -Des
 Copy-RequiredFile -Source (Join-Path $rootDir 'start-telegram-bridge.ps1') -Destination (Join-Path $packageDir 'start-telegram-bridge.ps1')
 Copy-RequiredFile -Source (Join-Path $rootDir 'start-telegram-bridge.cmd') -Destination (Join-Path $packageDir 'start-telegram-bridge.cmd')
 Copy-RequiredFile -Source (Join-Path $rootDir 'scripts\serve-blackcat-frontend.ps1') -Destination (Join-Path $packageDir 'scripts\serve-blackcat-frontend.ps1')
-Copy-RequiredFile -Source $versionGuidePath -Destination (Join-Path $packageDir "AutoBookkeeping-v$version-install-and-use.md")
 Copy-RequiredFile -Source (Join-Path $rootDir 'telegram-bridge\package.json') -Destination (Join-Path $packageDir 'telegram-bridge\package.json')
 Copy-RequiredFile -Source (Join-Path $rootDir 'telegram-bridge\package-lock.json') -Destination (Join-Path $packageDir 'telegram-bridge\package-lock.json')
 Copy-RequiredFile -Source (Join-Path $rootDir 'telegram-bridge\server.mjs') -Destination (Join-Path $packageDir 'telegram-bridge\server.mjs')
